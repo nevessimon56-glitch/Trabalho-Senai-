@@ -5,6 +5,18 @@ leitura de arquivos e estruturas de repeticao.
 
 ## Como executar
 
+Para abrir o aplicativo com telas:
+
+```bash
+python3 app.py
+```
+
+No Windows, se o comando `python3` nao funcionar, use:
+
+```powershell
+python app.py
+```
+
 Use Python 3 para executar cada programa individualmente:
 
 ```bash
@@ -28,8 +40,35 @@ Se voce ainda nao tem a pasta do projeto no computador, baixe a branch com:
 ```powershell
 git clone -b cursor/programas-basicos-1030 https://github.com/nevessimon56-glitch/Trabalho-Senai-.git
 cd Trabalho-Senai-
-python executar_todos.py
+python app.py
 ```
+
+## Como transformar em executavel no Windows
+
+Instale o PyInstaller:
+
+```powershell
+pip install pyinstaller
+```
+
+Depois gere o executavel:
+
+```powershell
+pyinstaller --onefile --windowed app.py
+```
+
+O arquivo final ficara dentro da pasta `dist`.
+
+## Aplicativo
+
+O arquivo `app.py` abre uma janela com abas para:
+
+- Nome e idade
+- Operacoes basicas
+- Leitura de arquivo
+- Calculo de IMC
+- Tabuada
+- Media do aluno
 
 ## Programas
 
