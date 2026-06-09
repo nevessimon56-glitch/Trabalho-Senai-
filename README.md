@@ -11,6 +11,26 @@ Use Python 3 para executar cada programa individualmente:
 python3 programas/01_nome_idade.py
 ```
 
+Para executar todos os programas de uma vez com exemplos prontos:
+
+```bash
+python3 executar_todos.py
+```
+
+No Windows, se o comando `python3` nao funcionar, use:
+
+```powershell
+python executar_todos.py
+```
+
+Se voce ainda nao tem a pasta do projeto no computador, baixe a branch com:
+
+```powershell
+git clone -b cursor/programas-basicos-1030 https://github.com/nevessimon56-glitch/Trabalho-Senai-.git
+cd Trabalho-Senai-
+python executar_todos.py
+```
+
 ## Programas
 
 1. `programas/01_nome_idade.py`: pede nome e idade e mostra uma mensagem personalizada.
