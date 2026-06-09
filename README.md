@@ -17,6 +17,10 @@ No Windows, se o comando `python3` nao funcionar, use:
 python app.py
 ```
 
+O aplicativo usa Tkinter, que normalmente ja vem junto com o Python no Windows.
+Se aparecer erro dizendo que `tkinter` nao foi encontrado, reinstale o Python
+marcando a opcao de instalar `tcl/tk`.
+
 Use Python 3 para executar cada programa individualmente:
 
 ```bash

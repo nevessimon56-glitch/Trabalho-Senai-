@@ -1,7 +1,18 @@
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
-from tkinter.scrolledtext import ScrolledText
+
+try:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, ttk
+    from tkinter.scrolledtext import ScrolledText
+except ModuleNotFoundError as erro:
+    tk = None
+    filedialog = None
+    messagebox = None
+    ttk = None
+    ScrolledText = None
+    TKINTER_IMPORT_ERROR = erro
+else:
+    TKINTER_IMPORT_ERROR = None
 
 
 def ler_decimal(valor, campo):
@@ -24,8 +35,14 @@ def formatar_numero(valor):
     return f"{valor:.2f}"
 
 
-class ExerciciosApp(tk.Tk):
+class ExerciciosApp(tk.Tk if tk is not None else object):
     def __init__(self):
+        if TKINTER_IMPORT_ERROR is not None:
+            raise RuntimeError(
+                "Tkinter nao esta instalado. No Windows, reinstale o Python marcando a opcao tcl/tk. "
+                "No Linux, instale o pacote python3-tk."
+            ) from TKINTER_IMPORT_ERROR
+
         super().__init__()
         self.title("Trabalho Senai - Exercicios em Python")
         self.geometry("820x620")
@@ -269,6 +286,12 @@ class ExerciciosApp(tk.Tk):
 
 
 def main():
+    if TKINTER_IMPORT_ERROR is not None:
+        raise SystemExit(
+            "Tkinter nao esta instalado. No Windows, reinstale o Python marcando a opcao tcl/tk. "
+            "No Linux, instale o pacote python3-tk."
+        ) from TKINTER_IMPORT_ERROR
+
     app = ExerciciosApp()
     app.mainloop()
 
