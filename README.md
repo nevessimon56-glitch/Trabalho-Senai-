@@ -27,9 +27,10 @@ python -m spacy download pt_core_news_sm
 streamlit run app.py
 ```
 
-Abra o endereço exibido no terminal (geralmente `http://localhost:8501`).
+Abra o arquivo `reputai.html` com duplo clique no navegador — não precisa instalar nada.
 
-## Uso rápido
+Para scraping por URL e spaCy completo, use a versão Streamlit (`streamlit run app.py`).
+
 
 1. Aba **Comentários Manuais** — use os exemplos pré-carregados e clique em **Analisar Texto Manual**
 2. Aba **URL da Web** — cole o link de uma página com avaliações/comentários
