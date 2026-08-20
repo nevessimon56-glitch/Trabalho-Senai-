@@ -1,0 +1,42 @@
+COMO ABRIR O REPUTAAI NO WINDOWS
+==================================
+
+Se o arquivo aparece como "Arquivo TXT" no Explorer, ele NAO e HTML de verdade.
+Isso acontece quando o Windows esconde a extensao e o Bloco de Notas salva como .txt.
+
+FORMA MAIS FACIL (recomendada)
+------------------------------
+1. Baixe a pasta do projeto (ou so estes arquivos):
+   - ReputaAI.html
+   - ABRIR_REPUTAAI.bat
+2. De duplo clique em: ABRIR_REPUTAAI.bat
+3. O navegador abre sozinho. Pronto.
+
+SE QUISER SALVAR MANUALMENTE
+----------------------------
+1. No Explorer: Exibir > Marque "Extensoes de nomes de arquivos"
+2. Abra o Bloco de Notas
+3. Cole TODO o conteudo do arquivo ReputaAI.html
+4. Arquivo > Salvar como...
+5. Em "Tipo", escolha: "Todos os arquivos (*.*)"  (NAO use "Documentos de texto")
+6. Nome do arquivo: ReputaAI.html
+7. Codificacao: UTF-8
+8. Salvar
+
+COMO SABER SE DEU CERTO
+-----------------------
+No Explorer, a coluna "Tipo" deve mostrar:
+   "Chrome HTML Document"  ou  "Microsoft Edge HTML Document"
+
+Se mostrar "Arquivo TXT", o nome real provavelmente e:
+   ReputaAI.html.txt
+
+Renomeie removendo o .txt final.
+
+NAO USE ESTES NOMES
+-------------------
+- !DOCTYPE.HTML
+- Teste
+- arquivo.html.txt
+
+Use exatamente: ReputaAI.html
