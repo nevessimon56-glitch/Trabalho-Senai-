@@ -1,0 +1,6 @@
+streamlit>=1.61.0
+pandas>=2.0.0
+spacy>=3.7.0
+https://github.com/explosion/spacy-models/releases/download/pt_core_news_sm-3.8.0/pt_core_news_sm-3.8.0-py3-none-any.whl
+beautifulsoup4>=4.15.0
+requests>=2.34.0
