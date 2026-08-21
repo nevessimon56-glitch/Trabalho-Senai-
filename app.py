@@ -624,9 +624,9 @@ def extrair_comentarios_da_pagina(url: str) -> list[str]:
     except PaginaBloqueadaError:
         if "midea.com.br" in url:
             raise PaginaBloqueadaError(
-                "Na Midea, role até **Avaliações da loja** — são opiniões reais de compradores (Vurdere), "
-                "diferentes do FAQ acima. A API Vurdere bloqueou o acesso automático neste servidor. "
-                "Abra **ReputaAI.html** no seu PC com `https://www.midea.com.br/` ou cole os textos na aba manual."
+                "A Midea carrega avaliações reais via **Vurdere** (role até *Avaliações da loja*), "
+                "mas bloqueia extração automática por URL (CORS/Cloudflare). "
+                f"Use a demo: `{MIDEA_DEMO_URL}` ou cole os textos na aba manual."
             ) from None
         raise
 
@@ -679,6 +679,11 @@ DEMO_URL = (
 
 MIDEA_HOME_URL = "https://www.midea.com.br/"
 
+MIDEA_DEMO_URL = (
+    "https://raw.githubusercontent.com/nevessimon56-glitch/Trabalho-Senai-/"
+    "cursor/fix-reputaai-nlp-sentiment-c8f5/demo_midea_avaliacoes.html"
+)
+
 URL_LAB_FUNCIONA = DEMO_URL  # página pública de teste com avaliações de compradores no HTML
 
 st.title("🛡️ ReputaAI — Análise de Reputação & Sentimentos")
@@ -696,8 +701,8 @@ with st.container(border=True):
             if st.button("Usar URL de demonstração"):
                 st.session_state["url_field"] = DEMO_URL
         with col_midea:
-            if st.button("Usar homepage Midea"):
-                st.session_state["url_field"] = MIDEA_HOME_URL
+            if st.button("Demo Midea (funciona)"):
+                st.session_state["url_field"] = MIDEA_DEMO_URL
 
         url_input = st.text_input(
             "Link da página (produto, avaliações, reclamações...)",
@@ -712,10 +717,16 @@ with st.container(border=True):
             f"visíveis no HTML:\n\n`{URL_LAB_FUNCIONA}`"
         )
         st.info(
-            "**Midea:** role a homepage até **Avaliações da loja** — são comentários reais (Vurdere), "
-            "não confundir com o FAQ acima. O ReputaAI tenta buscar pela API Vurdere automaticamente. "
-            "Para outras lojas, use a página do produto com reviews visíveis ou a URL de demonstração."
+            "**Midea real** (`midea.com.br`): as avaliações ao rolar a página são da Vurdere, "
+            "mas **não dá para extrair pela URL** — use **ReputaAI.html → aba Midea (Vurdere)** "
+            "com o bookmarklet, ou a **Demo Midea** acima para o laboratório."
         )
+        with st.expander("Como copiar avaliações da Midea real (ReputaAI.html)"):
+            st.markdown(
+                "1. Abra [midea.com.br](https://www.midea.com.br/) e role até **Avaliações da loja**.\n"
+                "2. No **ReputaAI.html**, aba **Midea (Vurdere)**, arraste o bookmarklet verde para favoritos.\n"
+                "3. Na Midea, clique no favorito → volte ao ReputaAI → aba manual → Ctrl+V → Analisar."
+            )
 
         if btn_url:
             if not url_input.strip():
