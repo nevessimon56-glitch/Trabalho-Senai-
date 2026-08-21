@@ -357,7 +357,9 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
       "um","uma","uns","umas","por","para","com","sem","que","se","ao","aos","eu",
       "ele","ela","eles","elas","me","meu","minha","seu","sua","isso","este","esta",
       "ter","foi","ser","estar","ha","ja","ainda","muito","mais","menos","tambem",
-      "so","sobre","entre","como","quando","onde","la","aqui","tudo","todo","toda"
+      "so","sobre","entre","como","quando","onde","la","aqui","tudo","todo","toda",
+      "the","and","your","you","there","between","web","server","cloudflare","issue",
+      "please","try","again","with","from","this","that","can","not","our","for"
     ]);
 
     const DEMO_URL =
@@ -368,15 +370,30 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
       "newsletter", "cadastre-se", "fale conosco", "menu", "carrinho"
     ];
 
+    const TEXTO_ERRO_SISTEMA = [
+      "cloudflare", "ray id", "origin web server", "please try again",
+      "unknown connection issue", "web page can not be displayed",
+      "web page cannot be displayed", "performance & security by cloudflare",
+      "troubleshooting resources", "error 502", "error 503", "error 403",
+      "access denied", "attention required", "checking your browser",
+      "enable javascript", "captcha", "bot detection", "just a moment",
+      "security check", "ddos protection", "please wait"
+    ];
+
+    const PALAVRAS_PT = new Set([
+      "de", "da", "do", "das", "dos", "nao", "que", "com", "para", "uma", "um",
+      "produto", "loja", "compra", "comprei", "muito", "bem", "recomendo", "entrega",
+      "atendimento", "preco", "qualidade", "cliente", "servico"
+    ]);
+
     const SELETORES = [
       "[itemprop='reviewBody']", "[itemprop='commentBody']",
       "[class*='review-text']", "[class*='review-body']", "[class*='review-content']",
       "[class*='comment-text']", "[class*='comment-body']", "[class*='comment-content']",
       "[class*='user-comment']", "[class*='customer-review']", "[class*='avaliacao']",
       "[class*='depoimento']", "[class*='testimonial']", "[class*='opinion']",
-      "[class*='feedback']", "[class*='comment']", "[class*='review']",
-      "[id*='comment']", "[id*='review']", "[id*='avaliacao']",
-      "[data-review]", "[data-comment]", "blockquote", ".review-item p", ".comment-item p", "article p"
+      "[class*='feedback']", "[data-review]", "[data-comment]",
+      "blockquote", ".review-item p", ".comment-item p"
     ];
 
     let dadosAtuais = [];
@@ -386,19 +403,47 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
       return texto.replace(/\s+/g, " ").trim();
     }
 
-    function pareceComentario(texto) {
+    function ehTextoDeErro(texto) {
+      const lower = limparTexto(texto).toLowerCase();
+      return TEXTO_ERRO_SISTEMA.some((t) => lower.includes(t));
+    }
+
+    function temCaraDePortugues(texto) {
+      const lower = limparTexto(texto).toLowerCase();
+      if (/[áàâãéêíóôõúç]/.test(lower)) return true;
+      const tokens = lower.match(/[a-zà-ú]+/g) || [];
+      let hits = 0;
+      for (const t of tokens) if (PALAVRAS_PT.has(t)) hits++;
+      return hits >= 2;
+    }
+
+    function detectarPaginaBloqueada(html, doc) {
+      const lower = html.toLowerCase();
+      const indicadores = ["cloudflare", "ray id", "origin web server", "cf-error", "checking your browser"]
+        .filter((t) => lower.includes(t)).length;
+      if (indicadores >= 2 || doc.querySelector("#cf-wrapper, .cf-error-overview, [class*='cf-error']")) {
+        return "O site bloqueou o acesso (Cloudflare/anti-bot). Não há comentários reais nesta resposta.";
+      }
+      return null;
+    }
+
+    function pareceComentario(texto, exigirPortugues = true) {
       texto = limparTexto(texto);
       if (texto.length < 20 || texto.length > 800) return false;
       if ((texto.match(/ /g) || []).length < 3) return false;
       const lower = texto.toLowerCase();
       if (TEXTO_BLOQUEADO.some((t) => lower.includes(t))) return false;
-      if (/^[\d\s\W]+$/.test(texto)) return false;
+      if (ehTextoDeErro(texto)) return false;
+      if (exigirPortugues && !temCaraDePortugues(texto)) return false;
       return true;
     }
 
     function extrairComentariosDoHtml(html) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, "text/html");
+
+      const bloqueio = detectarPaginaBloqueada(html, doc);
+      if (bloqueio) throw new Error(bloqueio);
 
       doc.querySelectorAll("script, style, noscript, svg, header, footer, nav, aside, form").forEach((el) => el.remove());
 
@@ -412,7 +457,9 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
               const tipos = Array.isArray(obj["@type"]) ? obj["@type"] : [obj["@type"]];
               if (tipos.some((t) => ["Review", "UserComments", "Comment"].includes(t))) {
                 const corpo = obj.reviewBody || obj.description || obj.text;
-                if (typeof corpo === "string" && pareceComentario(corpo)) candidatos.push(limparTexto(corpo));
+                if (typeof corpo === "string" && pareceComentario(corpo, false) && temCaraDePortugues(corpo)) {
+                  candidatos.push(limparTexto(corpo));
+                }
               }
               Object.values(obj).forEach((v) => { if (v && typeof v === "object") walk(v); });
             }
@@ -427,24 +474,24 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
           if (vistos.has(el)) return;
           vistos.add(el);
           const texto = limparTexto(el.textContent || "");
-          if (pareceComentario(texto)) candidatos.push(texto);
-        });
-      }
-
-      if (candidatos.length < 3) {
-        doc.querySelectorAll("p").forEach((p) => {
-          const texto = limparTexto(p.textContent || "");
-          if (pareceComentario(texto)) candidatos.push(texto);
+          if (pareceComentario(texto, false) && temCaraDePortugues(texto)) candidatos.push(texto);
         });
       }
 
       if (candidatos.length < 2) {
-        quebrarComentarios(doc.body?.textContent || "").forEach((linha) => {
-          if (pareceComentario(linha)) candidatos.push(linha);
+        doc.querySelectorAll("p").forEach((p) => {
+          const texto = limparTexto(p.textContent || "");
+          if (pareceComentario(texto, true)) candidatos.push(texto);
         });
       }
 
-      return [...new Set(candidatos)].slice(0, 100);
+      const unicos = [...new Set(candidatos.filter((t) => !ehTextoDeErro(t)))];
+      if (!unicos.length) {
+        throw new Error(
+          "Nenhum comentário em português encontrado. A URL pode não ser de avaliações ou o site bloqueou o acesso."
+        );
+      }
+      return unicos.slice(0, 100);
     }
 
     async function baixarPagina(url) {

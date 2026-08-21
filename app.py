@@ -192,13 +192,70 @@ def _limpar_texto(texto: str) -> str:
     return " ".join(texto.split())
 
 
+class PaginaBloqueadaError(Exception):
+    """A página retornou bloqueio (Cloudflare, captcha etc.), não comentários reais."""
+
+
 TEXTO_BLOQUEADO = (
     "cookie", "privacidade", "todos os direitos", "aceitar cookies",
     "newsletter", "cadastre-se", "fale conosco", "menu", "carrinho",
 )
 
+TEXTO_ERRO_SISTEMA = (
+    "cloudflare", "ray id", "origin web server", "please try again",
+    "unknown connection issue", "web page can not be displayed",
+    "web page cannot be displayed", "performance & security by cloudflare",
+    "troubleshooting resources", "error 502", "error 503", "error 403",
+    "access denied", "attention required", "cf-error", "checking your browser",
+    "enable javascript", "captcha", "bot detection", "just a moment",
+    "security check", "ddos protection", "please wait", "blocked",
+)
 
-def _parece_comentario(texto: str) -> bool:
+PALAVRAS_PT_COMUNS = {
+    "de", "da", "do", "das", "dos", "nao", "não", "que", "com", "para", "uma", "um",
+    "produto", "loja", "compra", "comprei", "muito", "bem", "recomendo", "entrega",
+    "atendimento", "preco", "preço", "qualidade", "cliente", "servico", "serviço",
+}
+
+
+def _eh_texto_de_erro(texto: str) -> bool:
+    lower = _limpar_texto(texto).lower()
+    return any(termo in lower for termo in TEXTO_ERRO_SISTEMA)
+
+
+def _tem_cara_de_portugues(texto: str) -> bool:
+    lower = _limpar_texto(texto).lower()
+    if re.search(r"[áàâãéêíóôõúç]", lower):
+        return True
+    tokens = set(re.findall(r"[a-zà-ú]+", lower))
+    return len(tokens & PALAVRAS_PT_COMUNS) >= 2
+
+
+def _detectar_pagina_bloqueada(html: str, soup: BeautifulSoup) -> str | None:
+    lower = html.lower()
+    indicadores = sum(
+        1
+        for termo in (
+            "cloudflare",
+            "ray id",
+            "origin web server",
+            "cf-error",
+            "attention required",
+            "checking your browser",
+        )
+        if termo in lower
+    )
+    if indicadores >= 2 or soup.select("#cf-wrapper, .cf-error-overview, [class*='cf-error']"):
+        return (
+            "O site bloqueou o acesso automático (proteção Cloudflare/anti-bot). "
+            "Não foi possível obter comentários reais — use a aba manual ou a URL de demonstração."
+        )
+    if _eh_texto_de_erro(soup.title.get_text(strip=True) if soup.title else ""):
+        return "A página retornou uma tela de erro, não comentários de clientes."
+    return None
+
+
+def _parece_comentario(texto: str, exigir_portugues: bool = True) -> bool:
     texto = _limpar_texto(texto)
     if len(texto) < 20 or len(texto) > 800:
         return False
@@ -207,7 +264,11 @@ def _parece_comentario(texto: str) -> bool:
     lower = texto.lower()
     if any(termo in lower for termo in TEXTO_BLOQUEADO):
         return False
+    if _eh_texto_de_erro(texto):
+        return False
     if re.fullmatch(r"[\d\s\W]+", texto):
+        return False
+    if exigir_portugues and not _tem_cara_de_portugues(texto):
         return False
     return True
 
@@ -247,16 +308,19 @@ def extrair_comentarios_do_html(html: str) -> list[str]:
     """Extrai comentários/avaliações de HTML já baixado."""
     soup = BeautifulSoup(html, "html.parser")
 
+    bloqueio = _detectar_pagina_bloqueada(html, soup)
+    if bloqueio:
+        raise PaginaBloqueadaError(bloqueio)
+
     for tag in soup(["script", "style", "noscript", "svg", "header", "footer", "nav", "aside", "form"]):
         tag.decompose()
 
     candidatos: list[str] = []
     candidatos.extend(_extrair_json_ld(soup))
 
-    seletores = [
+    seletores_prioritarios = [
         "[itemprop='reviewBody']",
         "[itemprop='commentBody']",
-        "[itemprop='description'][itemscope]",
         "[class*='review-text']",
         "[class*='review-body']",
         "[class*='review-content']",
@@ -270,45 +334,41 @@ def extrair_comentarios_do_html(html: str) -> list[str]:
         "[class*='testimonial']",
         "[class*='opinion']",
         "[class*='feedback']",
-        "[class*='comment']",
-        "[class*='review']",
-        "[id*='comment']",
-        "[id*='review']",
-        "[id*='avaliacao']",
         "[data-review]",
         "[data-comment]",
         "blockquote",
         ".review-item p",
         ".comment-item p",
-        "article p",
     ]
 
     vistos_elementos: set[int] = set()
-    for seletor in seletores:
+    for seletor in seletores_prioritarios:
         for elemento in soup.select(seletor):
             elemento_id = id(elemento)
             if elemento_id in vistos_elementos:
                 continue
             vistos_elementos.add(elemento_id)
             texto = _limpar_texto(elemento.get_text(" ", strip=True))
-            if _parece_comentario(texto):
-                candidatos.append(texto)
-
-    if len(candidatos) < 3:
-        for paragrafo in soup.find_all("p"):
-            texto = _limpar_texto(paragrafo.get_text(" ", strip=True))
-            if _parece_comentario(texto):
+            if _parece_comentario(texto, exigir_portugues=False) and _tem_cara_de_portugues(texto):
                 candidatos.append(texto)
 
     if len(candidatos) < 2:
-        candidatos.extend(
-            linha for linha in quebrar_comentarios(soup.get_text("\n", strip=True)) if _parece_comentario(linha)
-        )
+        for paragrafo in soup.find_all("p"):
+            texto = _limpar_texto(paragrafo.get_text(" ", strip=True))
+            if _parece_comentario(texto, exigir_portugues=True):
+                candidatos.append(texto)
 
     comentarios_unicos: list[str] = []
     for texto in candidatos:
-        if texto not in comentarios_unicos:
+        if texto not in comentarios_unicos and not _eh_texto_de_erro(texto):
             comentarios_unicos.append(texto)
+
+    if not comentarios_unicos:
+        raise PaginaBloqueadaError(
+            "Nenhum comentário em português encontrado nesta página. "
+            "Verifique se a URL aponta para avaliações/comentários visíveis, "
+            "ou use a aba manual."
+        )
 
     return comentarios_unicos[:100]
 
@@ -422,6 +482,8 @@ with st.container(border=True):
                                 "Nenhum comentário encontrado nesta página. "
                                 "Alguns sites bloqueiam acesso automático — tente outra URL ou a aba manual."
                             )
+                    except PaginaBloqueadaError as erro:
+                        st.error(str(erro))
                     except requests.HTTPError as erro:
                         st.error(
                             f"Site retornou erro HTTP ({erro.response.status_code}). "
