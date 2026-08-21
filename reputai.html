@@ -228,7 +228,16 @@
     .status-msg.err { color: #f87171; }
     .status-msg.load { color: var(--muted); }
 
-    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .status-msg.help { color: #93c5fd; background: rgba(59, 130, 246, 0.12); border: 1px solid #3b82f6; white-space: pre-wrap; }
+
+    .midea-steps { font-size: 0.9rem; color: var(--muted); margin: 12px 0; padding-left: 1.2rem; }
+    .midea-steps li { margin-bottom: 6px; }
+    .bookmarklet {
+      display: inline-block; margin-top: 10px; padding: 10px 14px;
+      background: #059669; color: white; border-radius: 8px; text-decoration: none; font-weight: 600;
+    }
+    .bookmarklet:hover { background: #047857; }
+    code.inline { background: var(--bg); padding: 2px 6px; border-radius: 4px; font-size: 0.85rem; }
   </style>
 </head>
 <body>
@@ -241,6 +250,7 @@
     <div class="card">
       <div class="tabs">
         <button type="button" class="tab active" data-tab="url">🌐 Extrair da URL</button>
+        <button type="button" class="tab" data-tab="midea">🏪 Midea (Vurdere)</button>
         <button type="button" class="tab" data-tab="manual">✍️ Colar manualmente</button>
       </div>
 
@@ -250,14 +260,35 @@
         <div class="btn-row">
           <button type="button" id="btnExtrairUrl">🔍 Extrair comentários e analisar</button>
           <button type="button" class="secondary" id="btnDemoUrl">Usar URL de demonstração</button>
-          <button type="button" class="secondary" id="btnMideaUrl">Usar homepage Midea</button>
+          <button type="button" class="secondary" id="btnMideaDemo">Demo Midea (funciona)</button>
         </div>
         <p class="hint">
-          <strong>Midea:</strong> role até <strong>Avaliações da loja</strong> — são comentários reais de compradores
-          (Vurdere), não o FAQ acima. Este app tenta buscar pela API Vurdere ao colar
-          <code>https://www.midea.com.br/</code>. Para o laboratório, use a URL de demonstração.
+          A homepage real da Midea (<code class="inline">midea.com.br</code>) carrega avaliações via JavaScript (Vurdere)
+          e <strong>não permite extração automática</strong> por URL — use a aba <strong>Midea (Vurdere)</strong>.
+          Para o laboratório, clique em <strong>Demo Midea (funciona)</strong> ou URL de demonstração.
         </p>
         <div id="statusUrl" class="status-msg"></div>
+      </div>
+
+      <div id="panel-midea" class="panel">
+        <p class="hint" style="margin-bottom:12px;">
+          As avaliações que você vê ao rolar a Midea são reais (seção <strong>Avaliações da loja / Vendedor</strong>),
+          mas a loja bloqueia acesso externo. Siga os passos abaixo:
+        </p>
+        <ol class="midea-steps">
+          <li>Abra <a href="https://www.midea.com.br/" target="_blank" rel="noopener">midea.com.br</a> e role até o final.</li>
+          <li>Aguarde carregar as avaliações (Vurdere).</li>
+          <li>Arraste o botão verde para a barra de favoritos (bookmarklet):</li>
+        </ol>
+        <a class="bookmarklet" id="bookmarkletMidea" href="#">📋 Copiar avaliações Midea</a>
+        <p class="hint" style="margin-top:14px;">
+          Na Midea, clique no favorito <strong>Copiar avaliações Midea</strong> → volte aqui → aba
+          <strong>Colar manualmente</strong> → Ctrl+V → Analisar.
+        </p>
+        <div class="btn-row">
+          <button type="button" class="secondary" id="btnAbrirMidea">Abrir midea.com.br</button>
+          <button type="button" id="btnDemoMideaPanel">Usar demo Midea (sem copiar)</button>
+        </div>
       </div>
 
       <div id="panel-manual" class="panel">
@@ -367,7 +398,9 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
     const DEMO_URL =
       "https://raw.githubusercontent.com/nevessimon56-glitch/Trabalho-Senai-/cursor/fix-reputaai-nlp-sentiment-c8f5/demo_pagina_avaliacoes.html";
 
-    const MIDEA_HOME_URL = "https://www.midea.com.br/";
+    const MIDEA_DEMO_URL =
+      "https://raw.githubusercontent.com/nevessimon56-glitch/Trabalho-Senai-/cursor/fix-reputaai-nlp-sentiment-c8f5/demo_midea_avaliacoes.html";
+
     const VURDERE_ECOMMERCE_ID = "mds";
 
     const TEXTO_BLOQUEADO = [
@@ -587,21 +620,51 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
     }
 
     async function fetchVurdereJson(apiUrl) {
-      try {
-        const res = await fetch(apiUrl, {
-          signal: AbortSignal.timeout(20000),
-          headers: {
-            Accept: "application/json, text/plain, */*",
-            "Accept-Language": "pt-BR,pt;q=0.9",
-          },
-        });
+      async function parseBody(res) {
         if (!res.ok) return null;
         const raw = await res.text();
         if (!raw || raw.trim().startsWith("<")) return null;
-        return JSON.parse(raw);
-      } catch (_) {
-        return null;
+        try { return JSON.parse(raw); } catch (_) { return null; }
       }
+
+      try {
+        const direct = await fetch(apiUrl, {
+          signal: AbortSignal.timeout(15000),
+          headers: { Accept: "application/json, text/plain, */*", "Accept-Language": "pt-BR,pt;q=0.9" },
+        });
+        const parsed = await parseBody(direct);
+        if (parsed) return parsed;
+      } catch (_) { /* CORS esperado fora de midea.com.br */ }
+
+      const proxyTentativas = [
+        async () => {
+          const res = await fetch(
+            "https://api.allorigins.win/get?url=" + encodeURIComponent(apiUrl),
+            { signal: AbortSignal.timeout(20000) }
+          );
+          const wrap = await res.json();
+          if (!wrap.contents) return null;
+          if (wrap.contents.trim().startsWith("<")) return null;
+          return JSON.parse(wrap.contents);
+        },
+        async () => {
+          const proxy =
+            "https://corsproxy.io/?url=" + encodeURIComponent(apiUrl) +
+            "&reqHeaders=" + encodeURIComponent("origin:https://www.midea.com.br") +
+            "&reqHeaders=" + encodeURIComponent("referer:https://www.midea.com.br/") +
+            "&reqHeaders=" + encodeURIComponent("accept:application/json");
+          const res = await fetch(proxy, { signal: AbortSignal.timeout(20000) });
+          return parseBody(res);
+        },
+      ];
+
+      for (const fn of proxyTentativas) {
+        try {
+          const dados = await fn();
+          if (dados) return dados;
+        } catch (_) { /* próximo proxy */ }
+      }
+      return null;
     }
 
     function ehHomepageMidea(url) {
@@ -688,11 +751,22 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
       throw ultimoErro || new Error("Não foi possível baixar a página.");
     }
 
+    function mostrarAjudaMidea(statusEl) {
+      setStatus(
+        statusEl,
+        "A Midea bloqueia extração automática (Vurdere + CORS).\n\n" +
+        "→ Abra a aba «Midea (Vurdere)» e use o bookmarklet na loja real,\n" +
+        "  ou clique «Demo Midea (funciona)» para testar no laboratório.",
+        "help"
+      );
+      document.querySelector('.tab[data-tab="midea"]').click();
+    }
+
     async function extrairComentariosDaPagina(url) {
       let alvo = url.trim();
       if (!/^https?:\/\//i.test(alvo)) alvo = "https://" + alvo;
 
-      if (alvo.includes("midea.com.br")) {
+      if (alvo.includes("midea.com.br") && !alvo.includes("demo_midea_avaliacoes")) {
         const vurdere = await extrairComentariosVurdereMidea(alvo);
         if (vurdere.length) return vurdere;
       }
@@ -701,16 +775,42 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
       try {
         return extrairComentariosDoHtml(html);
       } catch (err) {
-        if (alvo.includes("midea.com.br")) {
-          throw new Error(
-            "A Midea mostra avaliações reais em 'Avaliações da loja' (Vurdere), carregadas via JavaScript — " +
-            "não confunda com o FAQ acima. Não foi possível buscar pela API Vurdere (bloqueio/CORS). " +
-            "Tente no seu PC ou cole os comentários na aba manual."
-          );
+        if (alvo.includes("midea.com.br") && !alvo.includes("demo_midea_avaliacoes")) {
+          const e = new Error("MIDEA_BLOQUEADA");
+          e.cause = err;
+          throw e;
         }
         throw err;
       }
     }
+
+    function ativarTab(nome) {
+      document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+      document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+      document.querySelector('.tab[data-tab="' + nome + '"]').classList.add("active");
+      document.getElementById("panel-" + nome).classList.add("active");
+    }
+
+    async function analisarUrlDemo(url, origem) {
+      const status = document.getElementById("statusUrl");
+      const btn = document.getElementById("btnExtrairUrl");
+      document.getElementById("urlInput").value = url;
+      btn.disabled = true;
+      setStatus(status, "Extraindo comentários...", "load");
+      try {
+        const comentarios = await extrairComentariosDaPagina(url);
+        setStatus(status, comentarios.length + " comentários extraídos com sucesso.", "ok");
+        processarResultado(comentarios, origem);
+      } catch (err) {
+        if (err.message === "MIDEA_BLOQUEADA") mostrarAjudaMidea(status);
+        else setStatus(status, "Erro: " + err.message, "err");
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    const BOOKMARKLET_MIDEA =
+      "javascript:(function(){function copiar(){var r=document.querySelector('#vurdere-socialcommonly,[data-vurdere-store-reviews],[class*=\"StoreReview\"],[class*=\"vurdereStore\"]');if(!r){alert('Role ate Avaliacoes da loja / Vendedor e aguarde carregar.');return;}var s=new Set();r.querySelectorAll('p,span,li,div').forEach(function(el){if(el.children.length>3)return;var t=(el.innerText||'').replace(/\\s+/g,' ').trim();if(t.length>=12&&t.length<=500&&!/^\\d+$/.test(t))s.add(t);});var u=Array.from(s);if(!u.length)u=r.innerText.split(/\\n+/).map(function(x){return x.trim();}).filter(function(x){return x.length>=12;});var txt=u.join('\\n');navigator.clipboard.writeText(txt).then(function(){alert('Copiado '+u.length+' trechos! Cole no ReputaAI (aba manual).');}).catch(function(){prompt('Copie os textos:',txt);});}window.scrollTo(0,document.body.scrollHeight);setTimeout(copiar,2500);})();";
 
     function hostnameDe(url) {
       try { return new URL(url.startsWith("http") ? url : "https://" + url).hostname; }
@@ -966,8 +1066,19 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
       document.getElementById("urlInput").value = DEMO_URL;
     });
 
-    document.getElementById("btnMideaUrl").addEventListener("click", () => {
-      document.getElementById("urlInput").value = MIDEA_HOME_URL;
+    document.getElementById("btnMideaDemo").addEventListener("click", () => {
+      analisarUrlDemo(MIDEA_DEMO_URL, "demo_midea");
+    });
+
+    document.getElementById("bookmarkletMidea").href = BOOKMARKLET_MIDEA;
+
+    document.getElementById("btnAbrirMidea").addEventListener("click", () => {
+      window.open("https://www.midea.com.br/", "_blank", "noopener");
+    });
+
+    document.getElementById("btnDemoMideaPanel").addEventListener("click", () => {
+      ativarTab("url");
+      analisarUrlDemo(MIDEA_DEMO_URL, "demo_midea");
     });
 
     document.getElementById("btnExtrairUrl").addEventListener("click", async () => {
@@ -981,14 +1092,15 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
       }
 
       btn.disabled = true;
-      setStatus(status, "Buscando avaliações (Vurdere/HTML)...", "load");
+      setStatus(status, "Buscando avaliações...", "load");
 
       try {
         const comentarios = await extrairComentariosDaPagina(url);
         setStatus(status, `${comentarios.length} comentários extraídos com sucesso.`, "ok");
         processarResultado(comentarios, hostnameDe(url));
       } catch (err) {
-        setStatus(status, "Erro: " + err.message + " — tente a URL de demonstração.", "err");
+        if (err.message === "MIDEA_BLOQUEADA") mostrarAjudaMidea(status);
+        else setStatus(status, "Erro: " + err.message, "err");
       } finally {
         btn.disabled = false;
       }
