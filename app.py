@@ -524,6 +524,8 @@ DEMO_URL = (
     "cursor/fix-reputaai-nlp-sentiment-c8f5/demo_pagina_avaliacoes.html"
 )
 
+URL_LAB_FUNCIONA = DEMO_URL  # página pública de teste com avaliações de compradores no HTML
+
 st.title("🛡️ ReputaAI — Análise de Reputação & Sentimentos")
 st.caption(
     "Cole a **URL** de uma página de produto/avaliações — o sistema extrai os comentários "
@@ -545,6 +547,10 @@ with st.container(border=True):
         )
         btn_url = st.button("🔍 Extrair comentários e analisar", type="primary", width="stretch")
 
+        st.success(
+            f"**URL que funciona no laboratório:** cole esta página de produto com avaliações "
+            f"visíveis no HTML:\n\n`{URL_LAB_FUNCIONA}`"
+        )
         st.info(
             "Cole a URL da **página do produto** onde aparecem avaliações de compradores — "
             "não use a homepage nem páginas de FAQ/institucional. "

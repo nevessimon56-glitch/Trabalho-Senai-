@@ -8,6 +8,16 @@ Dashboard para mineração de opiniões a partir de **URL de sites**, classifica
 2. Clique em **Extrair comentários e analisar**
 3. Veja o diagnóstico de reputação e baixe o CSV
 
+## URL que funciona no laboratório (copie e cole no app)
+
+```
+https://raw.githubusercontent.com/nevessimon56-glitch/Trabalho-Senai-/cursor/fix-reputaai-nlp-sentiment-c8f5/demo_pagina_avaliacoes.html
+```
+
+Página de **produto fictício** com **8 avaliações de compradores** em português, no formato HTML real (`reviewBody`, `customer-review`). Use no botão **Usar URL de demonstração** ou cole manualmente.
+
+> Lojas grandes (Midea, Natura, Amazon, Mercado Livre) **não funcionam** — carregam reviews via JavaScript. Para essas lojas, copie os comentários manualmente da página do produto.
+
 ## Versão HTML — duplo clique no Windows
 
 1. Baixe **`ReputaAI.html`** e **`ABRIR_REPUTAAI.bat`**
