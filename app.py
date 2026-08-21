@@ -1,5 +1,7 @@
 from collections import Counter
 from statistics import mean
+import json
+import re
 import unicodedata
 from urllib.parse import urlparse
 
@@ -186,53 +188,150 @@ def quebrar_comentarios(texto: str) -> list[str]:
     return linhas
 
 
+def _limpar_texto(texto: str) -> str:
+    return " ".join(texto.split())
+
+
+TEXTO_BLOQUEADO = (
+    "cookie", "privacidade", "todos os direitos", "aceitar cookies",
+    "newsletter", "cadastre-se", "fale conosco", "menu", "carrinho",
+)
+
+
+def _parece_comentario(texto: str) -> bool:
+    texto = _limpar_texto(texto)
+    if len(texto) < 20 or len(texto) > 800:
+        return False
+    if texto.count(" ") < 3:
+        return False
+    lower = texto.lower()
+    if any(termo in lower for termo in TEXTO_BLOQUEADO):
+        return False
+    if re.fullmatch(r"[\d\s\W]+", texto):
+        return False
+    return True
+
+
+def _iter_json_ld(obj):
+    if isinstance(obj, list):
+        for item in obj:
+            yield from _iter_json_ld(item)
+    elif isinstance(obj, dict):
+        yield obj
+        for valor in obj.values():
+            if isinstance(valor, (dict, list)):
+                yield from _iter_json_ld(valor)
+
+
+def _extrair_json_ld(soup: BeautifulSoup) -> list[str]:
+    candidatos: list[str] = []
+    for script in soup.find_all("script", type="application/ld+json"):
+        if not script.string:
+            continue
+        try:
+            dados = json.loads(script.string)
+        except json.JSONDecodeError:
+            continue
+        for bloco in _iter_json_ld(dados):
+            tipo = bloco.get("@type", "")
+            tipos = tipo if isinstance(tipo, list) else [tipo]
+            if not any(t in ("Review", "UserComments", "Comment") for t in tipos):
+                continue
+            corpo = bloco.get("reviewBody") or bloco.get("description") or bloco.get("text")
+            if isinstance(corpo, str) and _parece_comentario(corpo):
+                candidatos.append(_limpar_texto(corpo))
+    return candidatos
+
+
+def extrair_comentarios_do_html(html: str) -> list[str]:
+    """Extrai comentários/avaliações de HTML já baixado."""
+    soup = BeautifulSoup(html, "html.parser")
+
+    for tag in soup(["script", "style", "noscript", "svg", "header", "footer", "nav", "aside", "form"]):
+        tag.decompose()
+
+    candidatos: list[str] = []
+    candidatos.extend(_extrair_json_ld(soup))
+
+    seletores = [
+        "[itemprop='reviewBody']",
+        "[itemprop='commentBody']",
+        "[itemprop='description'][itemscope]",
+        "[class*='review-text']",
+        "[class*='review-body']",
+        "[class*='review-content']",
+        "[class*='comment-text']",
+        "[class*='comment-body']",
+        "[class*='comment-content']",
+        "[class*='user-comment']",
+        "[class*='customer-review']",
+        "[class*='avaliacao']",
+        "[class*='depoimento']",
+        "[class*='testimonial']",
+        "[class*='opinion']",
+        "[class*='feedback']",
+        "[class*='comment']",
+        "[class*='review']",
+        "[id*='comment']",
+        "[id*='review']",
+        "[id*='avaliacao']",
+        "[data-review]",
+        "[data-comment]",
+        "blockquote",
+        ".review-item p",
+        ".comment-item p",
+        "article p",
+    ]
+
+    vistos_elementos: set[int] = set()
+    for seletor in seletores:
+        for elemento in soup.select(seletor):
+            elemento_id = id(elemento)
+            if elemento_id in vistos_elementos:
+                continue
+            vistos_elementos.add(elemento_id)
+            texto = _limpar_texto(elemento.get_text(" ", strip=True))
+            if _parece_comentario(texto):
+                candidatos.append(texto)
+
+    if len(candidatos) < 3:
+        for paragrafo in soup.find_all("p"):
+            texto = _limpar_texto(paragrafo.get_text(" ", strip=True))
+            if _parece_comentario(texto):
+                candidatos.append(texto)
+
+    if len(candidatos) < 2:
+        candidatos.extend(
+            linha for linha in quebrar_comentarios(soup.get_text("\n", strip=True)) if _parece_comentario(linha)
+        )
+
+    comentarios_unicos: list[str] = []
+    for texto in candidatos:
+        if texto not in comentarios_unicos:
+            comentarios_unicos.append(texto)
+
+    return comentarios_unicos[:100]
+
+
 def extrair_comentarios_da_pagina(url: str) -> list[str]:
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
 
     resposta = requests.get(
         url,
-        timeout=15,
+        timeout=20,
         headers={
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36"
             ),
-            "Accept-Language": "pt-BR,pt;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
         },
     )
     resposta.raise_for_status()
     resposta.encoding = resposta.apparent_encoding or "utf-8"
-    soup = BeautifulSoup(resposta.text, "html.parser")
-
-    for tag in soup(["script", "style", "noscript", "svg", "header", "footer", "nav", "aside"]):
-        tag.decompose()
-
-    seletores = [
-        "[class*='comment']", "[class*='review']", "[class*='avaliacao']",
-        "[class*='opinion']", "[class*='depoimento']", "[class*='testimonial']",
-        "[id*='comment']", "[id*='review']", "[id*='avaliacao']",
-        "blockquote", "article p", "[itemprop='reviewBody']",
-    ]
-
-    candidatos: list[str] = []
-    for seletor in seletores:
-        for elemento in soup.select(seletor):
-            texto = " ".join(elemento.get_text(" ", strip=True).split())
-            if 20 <= len(texto) <= 600:
-                candidatos.append(texto)
-
-    if not candidatos:
-        for paragrafo in soup.find_all("p"):
-            texto = " ".join(paragrafo.get_text(" ", strip=True).split())
-            if 30 <= len(texto) <= 500:
-                candidatos.append(texto)
-
-    if not candidatos:
-        candidatos = quebrar_comentarios(soup.get_text("\n", strip=True))
-
-    comentarios_unicos = list(dict.fromkeys(candidatos))
-    return comentarios_unicos[:100]
+    return extrair_comentarios_do_html(resposta.text)
 
 
 def analisar_comentarios(comentarios: list[str]) -> tuple[pd.DataFrame, list[str]]:
@@ -276,32 +375,42 @@ def calcular_reputacao(df: pd.DataFrame) -> tuple[str, float, str]:
 # ==============================================================================
 # INTERFACE GRÁFICA STREAMLIT
 # ==============================================================================
+DEMO_URL = (
+    "https://raw.githubusercontent.com/nevessimon56-glitch/Trabalho-Senai-/"
+    "cursor/fix-reputaai-nlp-sentiment-c8f5/demo_pagina_avaliacoes.html"
+)
+
 st.title("🛡️ ReputaAI — Análise de Reputação & Sentimentos")
 st.caption(
-    "Mineração de opiniões com spaCy, classificação léxica em português "
-    "(negações, intensificadores e contrastes) e exportação CSV."
+    "Cole a **URL** de uma página de produto/avaliações — o sistema extrai os comentários "
+    "automaticamente e gera o diagnóstico de reputação."
 )
 
 with st.container(border=True):
-    aba_url, aba_manual = st.tabs(["🌐 URL da Web", "✍️ Comentários Manuais"])
+    aba_url, aba_manual = st.tabs(["🌐 Extrair da URL (principal)", "✍️ Colar comentários manualmente"])
 
     with aba_url:
-        col_input_url, col_btn_url = st.columns([0.75, 0.25])
-        with col_input_url:
-            url_input = st.text_input(
-                "Link da página de avaliações",
-                placeholder="https://exemplo.com.br/produto/avaliacoes",
-            )
-        with col_btn_url:
-            btn_url = st.button("Extrair e Analisar", type="primary", width="stretch")
+        if st.button("Usar URL de demonstração"):
+            st.session_state["url_field"] = DEMO_URL
 
-        st.caption("Dica: páginas com seções de comentários/avaliações funcionam melhor.")
+        url_input = st.text_input(
+            "Link da página (produto, avaliações, reclamações...)",
+            placeholder="https://loja.com.br/produto/smartphone-xyz",
+            help="O scraper busca blocos de comentários, avaliações e depoimentos na página.",
+            key="url_field",
+        )
+        btn_url = st.button("🔍 Extrair comentários e analisar", type="primary", width="stretch")
+
+        st.info(
+            "Como funciona: informe a URL → o sistema baixa a página → "
+            "identifica textos de comentários/avaliações → classifica sentimentos e aspectos."
+        )
 
         if btn_url:
             if not url_input.strip():
-                st.warning("Insira uma URL válida para continuar.")
+                st.warning("Insira a URL do site para continuar.")
             else:
-                with st.spinner("Extraindo comentários da página..."):
+                with st.spinner("Acessando a página e extraindo comentários..."):
                     try:
                         comentarios_extraidos = extrair_comentarios_da_pagina(url_input.strip())
                         if comentarios_extraidos:
@@ -310,10 +419,16 @@ with st.container(border=True):
                             st.rerun()
                         else:
                             st.error(
-                                "Nenhum comentário identificado. Tente a aba manual ou outra URL."
+                                "Nenhum comentário encontrado nesta página. "
+                                "Alguns sites bloqueiam acesso automático — tente outra URL ou a aba manual."
                             )
+                    except requests.HTTPError as erro:
+                        st.error(
+                            f"Site retornou erro HTTP ({erro.response.status_code}). "
+                            "Muitas lojas bloqueiam scraping — use a URL de demonstração ou a aba manual."
+                        )
                     except requests.RequestException as erro:
-                        st.error(f"Erro ao acessar a URL: {erro}")
+                        st.error(f"Não foi possível acessar a URL: {erro}")
                     except Exception as erro:
                         st.error(f"Erro inesperado: {erro}")
 
@@ -339,8 +454,14 @@ comentarios_processar = st.session_state.get("comentarios", [])
 origem_atual = st.session_state.get("origem", "")
 
 if not comentarios_processar:
-    st.info("Escolha uma aba acima, insira os dados e clique em analisar para gerar o relatório.")
+    st.info("👆 Cole a **URL** do site na aba acima e clique em **Extrair comentários e analisar**.")
     st.stop()
+
+with st.expander(f"Ver {len(comentarios_processar)} comentários extraídos", expanded=False):
+    for i, c in enumerate(comentarios_processar[:20], 1):
+        st.write(f"{i}. {c}")
+    if len(comentarios_processar) > 20:
+        st.caption(f"... e mais {len(comentarios_processar) - 20} comentários.")
 
 df_resultado, lista_topicos = analisar_comentarios(comentarios_processar)
 status_reputacao, indice_rep, explicacao_rep = calcular_reputacao(df_resultado)
