@@ -3,7 +3,7 @@ from statistics import mean
 import json
 import re
 import unicodedata
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from bs4 import BeautifulSoup
 import pandas as pd
@@ -457,6 +457,144 @@ def _deduplicar_comentarios(textos: list[str]) -> list[str]:
     return finais
 
 
+VURDERE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "pt-BR,pt;q=0.9",
+    "Origin": "https://www.midea.com.br",
+    "Referer": "https://www.midea.com.br/",
+}
+
+VURDERE_ECOMMERCE_ID = "mds"
+
+
+def _parece_texto_vurdere(texto: str) -> bool:
+    """Texto vindo da API Vurdere — filtro leve (já são avaliações de compradores)."""
+    texto = _limpar_texto(texto)
+    if len(texto) < 15 or len(texto) > 2000:
+        return False
+    if _eh_texto_de_erro(texto):
+        return False
+    lower = texto.lower()
+    if any(termo in lower for termo in TEXTO_INSTITUCIONAL):
+        return False
+    return True
+
+
+def _parse_vurdere_json(data) -> list[str]:
+    """Extrai textos de avaliação de respostas JSON da Vurdere (Midea)."""
+    comentarios: list[str] = []
+    chaves = ("reviewBody", "reviewText", "text", "comment", "description", "message", "content", "body")
+
+    def walk(obj):
+        if isinstance(obj, dict):
+            for key in chaves:
+                valor = obj.get(key)
+                if isinstance(valor, str):
+                    texto = _limpar_texto(BeautifulSoup(valor, "html.parser").get_text(" ", strip=True))
+                    if _parece_texto_vurdere(texto):
+                        comentarios.append(texto)
+            for valor in obj.values():
+                walk(valor)
+        elif isinstance(obj, list):
+            for item in obj:
+                walk(item)
+
+    walk(data)
+    return _deduplicar_comentarios(comentarios)
+
+
+def _vurdere_get_json(url_api: str, referer: str) -> dict | list | None:
+    try:
+        resposta = requests.get(
+            url_api,
+            timeout=20,
+            headers={**VURDERE_HEADERS, "Referer": referer},
+        )
+        if resposta.status_code != 200:
+            return None
+        if "application/json" not in resposta.headers.get("Content-Type", "application/json"):
+            if resposta.text.lstrip().startswith("<"):
+                return None
+        return resposta.json()
+    except (requests.RequestException, json.JSONDecodeError, ValueError):
+        return None
+
+
+def _eh_homepage_midea(url: str) -> bool:
+    parsed = urlparse(url if url.startswith("http") else f"https://{url}")
+    if "midea.com.br" not in parsed.netloc:
+        return False
+    caminho = parsed.path.strip("/").lower()
+    return caminho in ("", "home")
+
+
+def _extrair_comentarios_vurdere_midea(url: str) -> list[str]:
+    """
+    Busca avaliações reais na API Vurdere (seção 'Avaliações da loja' / reviews de produto).
+    O HTML estático da Midea não traz esses textos — só o widget vazio + FAQ.
+    """
+    if "midea.com.br" not in url:
+        return []
+
+    url_norm = url if url.startswith("http") else f"https://{url}"
+    referer = url_norm
+
+    if _eh_homepage_midea(url_norm):
+        apis_loja = [
+            f"https://midea-br.mais.social/api/store/reviews?ecommerceId={VURDERE_ECOMMERCE_ID}&locale=ptBr&limit=50&filtersCityOff=true",
+            f"https://mideastore-br.mais.social/api/store/reviews?ecommerceId={VURDERE_ECOMMERCE_ID}&locale=ptBr&limit=50&filtersCityOff=true",
+            f"https://midea-br.mais.social/api/jamstack/reviews?ecommerceId={VURDERE_ECOMMERCE_ID}&locale=ptBr&limit=50",
+        ]
+        for api in apis_loja:
+            dados = _vurdere_get_json(api, referer)
+            if dados:
+                comentarios = _parse_vurdere_json(dados)
+                if comentarios:
+                    return comentarios[:100]
+        return []
+
+    # Página de produto — resolve IDs via API seo e busca reviews
+    seo_url = (
+        "https://mideastore-br.mais.social/api/pdp/seo?"
+        f"ecommerceId={VURDERE_ECOMMERCE_ID}&url={quote(url_norm, safe='')}"
+        "&locale=ptBr&v=4&selectiveLoad=true&trigger=init"
+    )
+    seo = _vurdere_get_json(seo_url, referer)
+    if not isinstance(seo, dict):
+        return []
+
+    product_id = seo.get("productId") or seo.get("product_id")
+    product_id2 = seo.get("productId2") or seo.get("product_id2") or ""
+    sku_id = seo.get("skuId") or seo.get("sku_id") or ""
+
+    if not product_id and isinstance(seo.get("product"), dict):
+        product_id = seo["product"].get("productId") or seo["product"].get("id")
+
+    if not product_id:
+        return []
+
+    params = (
+        f"ecommerceId={VURDERE_ECOMMERCE_ID}&productId={product_id}&locale=ptBr"
+        f"&limit=50&showRelated=true&filtersCityOff=true"
+    )
+    if product_id2:
+        params += f"&productId2={product_id2}"
+    if sku_id:
+        params += f"&skuId={quote(str(sku_id), safe='')}"
+
+    reviews_url = f"https://mideastore-br.mais.social/api/pdp/reviews?{params}"
+    dados = _vurdere_get_json(reviews_url, referer)
+    if dados:
+        comentarios = _parse_vurdere_json(dados)
+        if comentarios:
+            return comentarios[:100]
+    return []
+
+
 def extrair_comentarios_da_pagina(url: str) -> list[str]:
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
@@ -475,7 +613,22 @@ def extrair_comentarios_da_pagina(url: str) -> list[str]:
     )
     resposta.raise_for_status()
     resposta.encoding = resposta.apparent_encoding or "utf-8"
-    return extrair_comentarios_do_html(resposta.text)
+
+    if "midea.com.br" in url:
+        comentarios_vurdere = _extrair_comentarios_vurdere_midea(url)
+        if comentarios_vurdere:
+            return comentarios_vurdere
+
+    try:
+        return extrair_comentarios_do_html(resposta.text)
+    except PaginaBloqueadaError:
+        if "midea.com.br" in url:
+            raise PaginaBloqueadaError(
+                "Na Midea, role até **Avaliações da loja** — são opiniões reais de compradores (Vurdere), "
+                "diferentes do FAQ acima. A API Vurdere bloqueou o acesso automático neste servidor. "
+                "Abra **ReputaAI.html** no seu PC com `https://www.midea.com.br/` ou cole os textos na aba manual."
+            ) from None
+        raise
 
 
 def analisar_comentarios(comentarios: list[str]) -> tuple[pd.DataFrame, list[str]]:
@@ -524,6 +677,8 @@ DEMO_URL = (
     "cursor/fix-reputaai-nlp-sentiment-c8f5/demo_pagina_avaliacoes.html"
 )
 
+MIDEA_HOME_URL = "https://www.midea.com.br/"
+
 URL_LAB_FUNCIONA = DEMO_URL  # página pública de teste com avaliações de compradores no HTML
 
 st.title("🛡️ ReputaAI — Análise de Reputação & Sentimentos")
@@ -536,8 +691,13 @@ with st.container(border=True):
     aba_url, aba_manual = st.tabs(["🌐 Extrair da URL (principal)", "✍️ Colar comentários manualmente"])
 
     with aba_url:
-        if st.button("Usar URL de demonstração"):
-            st.session_state["url_field"] = DEMO_URL
+        col_demo, col_midea = st.columns(2)
+        with col_demo:
+            if st.button("Usar URL de demonstração"):
+                st.session_state["url_field"] = DEMO_URL
+        with col_midea:
+            if st.button("Usar homepage Midea"):
+                st.session_state["url_field"] = MIDEA_HOME_URL
 
         url_input = st.text_input(
             "Link da página (produto, avaliações, reclamações...)",
@@ -552,9 +712,9 @@ with st.container(border=True):
             f"visíveis no HTML:\n\n`{URL_LAB_FUNCIONA}`"
         )
         st.info(
-            "Cole a URL da **página do produto** onde aparecem avaliações de compradores — "
-            "não use a homepage nem páginas de FAQ/institucional. "
-            "Se o site carregar reviews via JavaScript (ex.: Midea/Vurdere), copie os textos na aba manual."
+            "**Midea:** role a homepage até **Avaliações da loja** — são comentários reais (Vurdere), "
+            "não confundir com o FAQ acima. O ReputaAI tenta buscar pela API Vurdere automaticamente. "
+            "Para outras lojas, use a página do produto com reviews visíveis ou a URL de demonstração."
         )
 
         if btn_url:

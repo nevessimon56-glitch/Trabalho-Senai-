@@ -250,10 +250,12 @@
         <div class="btn-row">
           <button type="button" id="btnExtrairUrl">🔍 Extrair comentários e analisar</button>
           <button type="button" class="secondary" id="btnDemoUrl">Usar URL de demonstração</button>
+          <button type="button" class="secondary" id="btnMideaUrl">Usar homepage Midea</button>
         </div>
         <p class="hint">
-          Fluxo: URL → download da página → identificação de blocos de comentário/avaliação → análise de sentimentos.
-          Alguns sites bloqueiam acesso; use o botão de demonstração para testar.
+          <strong>Midea:</strong> role até <strong>Avaliações da loja</strong> — são comentários reais de compradores
+          (Vurdere), não o FAQ acima. Este app tenta buscar pela API Vurdere ao colar
+          <code>https://www.midea.com.br/</code>. Para o laboratório, use a URL de demonstração.
         </p>
         <div id="statusUrl" class="status-msg"></div>
       </div>
@@ -364,6 +366,9 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
 
     const DEMO_URL =
       "https://raw.githubusercontent.com/nevessimon56-glitch/Trabalho-Senai-/cursor/fix-reputaai-nlp-sentiment-c8f5/demo_pagina_avaliacoes.html";
+
+    const MIDEA_HOME_URL = "https://www.midea.com.br/";
+    const VURDERE_ECOMMERCE_ID = "mds";
 
     const TEXTO_BLOQUEADO = [
       "cookie", "privacidade", "todos os direitos", "aceitar cookies",
@@ -550,6 +555,116 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
       return finais;
     }
 
+    function pareceTextoVurdere(texto) {
+      texto = limparTexto(texto);
+      if (texto.length < 15 || texto.length > 2000) return false;
+      if (ehTextoDeErro(texto)) return false;
+      const lower = texto.toLowerCase();
+      if (TEXTO_INSTITUCIONAL.some((t) => lower.includes(t))) return false;
+      return true;
+    }
+
+    function parseVurdereJson(data) {
+      const comentarios = [];
+      const chaves = ["reviewBody", "reviewText", "text", "comment", "description", "message", "content", "body"];
+
+      function walk(obj) {
+        if (Array.isArray(obj)) obj.forEach(walk);
+        else if (obj && typeof obj === "object") {
+          for (const k of chaves) {
+            const v = obj[k];
+            if (typeof v === "string") {
+              const tmp = new DOMParser().parseFromString(v, "text/html");
+              const t = limparTexto(tmp.body.textContent || v);
+              if (pareceTextoVurdere(t)) comentarios.push(t);
+            }
+          }
+          Object.values(obj).forEach((v) => { if (v && typeof v === "object") walk(v); });
+        }
+      }
+      walk(data);
+      return deduplicarComentarios([...new Set(comentarios)]);
+    }
+
+    async function fetchVurdereJson(apiUrl) {
+      try {
+        const res = await fetch(apiUrl, {
+          signal: AbortSignal.timeout(20000),
+          headers: {
+            Accept: "application/json, text/plain, */*",
+            "Accept-Language": "pt-BR,pt;q=0.9",
+          },
+        });
+        if (!res.ok) return null;
+        const raw = await res.text();
+        if (!raw || raw.trim().startsWith("<")) return null;
+        return JSON.parse(raw);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function ehHomepageMidea(url) {
+      try {
+        const u = new URL(url.startsWith("http") ? url : "https://" + url);
+        if (!u.hostname.includes("midea.com.br")) return false;
+        const path = u.pathname.replace(/^\/|\/$/g, "").toLowerCase();
+        return path === "" || path === "home";
+      } catch (_) {
+        return false;
+      }
+    }
+
+    async function extrairComentariosVurdereMidea(url) {
+      let alvo = url.trim();
+      if (!/^https?:\/\//i.test(alvo)) alvo = "https://" + alvo;
+      if (!alvo.includes("midea.com.br")) return [];
+
+      if (ehHomepageMidea(alvo)) {
+        const apis = [
+          `https://midea-br.mais.social/api/store/reviews?ecommerceId=${VURDERE_ECOMMERCE_ID}&locale=ptBr&limit=50&filtersCityOff=true`,
+          `https://mideastore-br.mais.social/api/store/reviews?ecommerceId=${VURDERE_ECOMMERCE_ID}&locale=ptBr&limit=50&filtersCityOff=true`,
+          `https://midea-br.mais.social/api/jamstack/reviews?ecommerceId=${VURDERE_ECOMMERCE_ID}&locale=ptBr&limit=50`,
+        ];
+        for (const api of apis) {
+          const dados = await fetchVurdereJson(api);
+          if (dados) {
+            const c = parseVurdereJson(dados);
+            if (c.length) return c.slice(0, 100);
+          }
+        }
+        return [];
+      }
+
+      const seoUrl =
+        `https://mideastore-br.mais.social/api/pdp/seo?ecommerceId=${VURDERE_ECOMMERCE_ID}` +
+        `&url=${encodeURIComponent(alvo)}&locale=ptBr&v=4&selectiveLoad=true&trigger=init`;
+      const seo = await fetchVurdereJson(seoUrl);
+      if (!seo || typeof seo !== "object") return [];
+
+      let productId = seo.productId || seo.product_id;
+      const productId2 = seo.productId2 || seo.product_id2 || "";
+      const skuId = seo.skuId || seo.sku_id || "";
+      if (!productId && seo.product && typeof seo.product === "object") {
+        productId = seo.product.productId || seo.product.id;
+      }
+      if (!productId) return [];
+
+      let params =
+        `ecommerceId=${VURDERE_ECOMMERCE_ID}&productId=${encodeURIComponent(productId)}` +
+        "&locale=ptBr&limit=50&showRelated=true&filtersCityOff=true";
+      if (productId2) params += `&productId2=${encodeURIComponent(productId2)}`;
+      if (skuId) params += `&skuId=${encodeURIComponent(String(skuId))}`;
+
+      const reviewsUrl = `https://mideastore-br.mais.social/api/pdp/reviews?${params}`;
+      const dados = await fetchVurdereJson(reviewsUrl);
+      if (dados) {
+        const c = parseVurdereJson(dados);
+        if (c.length) return c.slice(0, 100);
+      }
+      return [];
+    }
+
     async function baixarPagina(url) {
       let alvo = url.trim();
       if (!/^https?:\/\//i.test(alvo)) alvo = "https://" + alvo;
@@ -574,10 +689,27 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
     }
 
     async function extrairComentariosDaPagina(url) {
-      const { html } = await baixarPagina(url);
-      const comentarios = extrairComentariosDoHtml(html);
-      if (!comentarios.length) throw new Error("Nenhum comentário encontrado nesta página.");
-      return comentarios;
+      let alvo = url.trim();
+      if (!/^https?:\/\//i.test(alvo)) alvo = "https://" + alvo;
+
+      if (alvo.includes("midea.com.br")) {
+        const vurdere = await extrairComentariosVurdereMidea(alvo);
+        if (vurdere.length) return vurdere;
+      }
+
+      const { html } = await baixarPagina(alvo);
+      try {
+        return extrairComentariosDoHtml(html);
+      } catch (err) {
+        if (alvo.includes("midea.com.br")) {
+          throw new Error(
+            "A Midea mostra avaliações reais em 'Avaliações da loja' (Vurdere), carregadas via JavaScript — " +
+            "não confunda com o FAQ acima. Não foi possível buscar pela API Vurdere (bloqueio/CORS). " +
+            "Tente no seu PC ou cole os comentários na aba manual."
+          );
+        }
+        throw err;
+      }
     }
 
     function hostnameDe(url) {
@@ -834,6 +966,10 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
       document.getElementById("urlInput").value = DEMO_URL;
     });
 
+    document.getElementById("btnMideaUrl").addEventListener("click", () => {
+      document.getElementById("urlInput").value = MIDEA_HOME_URL;
+    });
+
     document.getElementById("btnExtrairUrl").addEventListener("click", async () => {
       const url = document.getElementById("urlInput").value.trim();
       const status = document.getElementById("statusUrl");
@@ -845,7 +981,7 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
       }
 
       btn.disabled = true;
-      setStatus(status, "Acessando a página e extraindo comentários...", "load");
+      setStatus(status, "Buscando avaliações (Vurdere/HTML)...", "load");
 
       try {
         const comentarios = await extrairComentariosDaPagina(url);
