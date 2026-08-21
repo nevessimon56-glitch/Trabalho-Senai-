@@ -386,6 +386,38 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
       "atendimento", "preco", "qualidade", "cliente", "servico"
     ]);
 
+    const TEXTO_INSTITUCIONAL = [
+      "fortune 500", "joint venture", "canal oficial", "politica de", "política de",
+      "clique aqui", "acesse:", "0800", "3003.", "whatsapp", "ouvidoria",
+      "nota fiscal", "garantia dever", "checkout", "disponibilizamos",
+      "fabricantes de eletrodomesticos", "recomendamos a leitura", "conforme a nossa",
+      "transportadoras parceiras", "descarte consciente", "programa de beneficios",
+      "politica de troca", "desconfie de pedidos", "navegue e encontre",
+      "central de atendimento", "registrar seu produto", "suporte mais rapido",
+      "politica de pagamento"
+    ];
+
+    const INICIO_FAQ = [
+      "sim!", "sim,", "temos,", "temos ", "as opcoes", "as opções", "as marcas",
+      "e simples", "voce encontra", "você encontra", "desconfie", "todos os atendimentos",
+      "a midea e", "a midea é", "este e o canal", "este é o canal", "disponibilizamos",
+      "o reembolso segue", "design compacto"
+    ];
+
+    const SINAIS_COMPRADOR = [
+      "comprei", "comprado", "recebi", "chegou", "gostei", "amei", "odiei",
+      "recomendo", "nao recomendo", "não recomendo", "insatisfeito", "satisfeito",
+      "minha experi", "minha compra", "usei ", "utilizei", "estrelas",
+      "vale a pena", "decepcion", "expectativa", "arrepend", "produto veio",
+      "entrega foi", "atendimento foi", "nota "
+    ];
+
+    const SELETORES_REMOVER = [
+      "[class*='FAQ']", "[class*='faq']", "[data-testid='faq']",
+      "[class*='Footer']", "[class*='footer']", "[class*='Banner']", "[class*='banner']",
+      "[class*='newsletter']"
+    ];
+
     const SELETORES = [
       "[itemprop='reviewBody']", "[itemprop='commentBody']",
       "[class*='review-text']", "[class*='review-body']", "[class*='review-content']",
@@ -438,6 +470,23 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
       return true;
     }
 
+    function pareceAvaliacaoComprador(texto) {
+      if (!pareceComentario(texto, true)) return false;
+      const lower = limparTexto(texto).toLowerCase();
+      const norm = removerAcentos(lower);
+      if (TEXTO_INSTITUCIONAL.some((t) => lower.includes(t) || norm.includes(removerAcentos(t)))) return false;
+      if (/\b0\d{3,4}[\s.-]?\d{4,}/.test(lower) || lower.includes("0800")) return false;
+      if (INICIO_FAQ.some((p) => norm.startsWith(removerAcentos(p)))) return false;
+      if (["voce pode comprar", "para voce escolher", "saiba mais", "clique aqui", "acesse:"].some((p) => norm.includes(p))) return false;
+
+      const temVoz = SINAIS_COMPRADOR.some((s) => norm.includes(removerAcentos(s)));
+      const temEu = /\b(eu|minha|meu|minhas|meus)\b/.test(norm);
+      const tokens = norm.match(/[a-z]+/g) || [];
+      const temSentimento = tokens.some((t) => t in LEXICO_PT);
+      if (!temVoz && !temEu && !temSentimento) return false;
+      return true;
+    }
+
     function extrairComentariosDoHtml(html) {
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, "text/html");
@@ -445,6 +494,7 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
       const bloqueio = detectarPaginaBloqueada(html, doc);
       if (bloqueio) throw new Error(bloqueio);
 
+      SELETORES_REMOVER.forEach((sel) => doc.querySelectorAll(sel).forEach((el) => el.remove()));
       doc.querySelectorAll("script, style, noscript, svg, header, footer, nav, aside, form").forEach((el) => el.remove());
 
       const candidatos = [];
@@ -457,7 +507,7 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
               const tipos = Array.isArray(obj["@type"]) ? obj["@type"] : [obj["@type"]];
               if (tipos.some((t) => ["Review", "UserComments", "Comment"].includes(t))) {
                 const corpo = obj.reviewBody || obj.description || obj.text;
-                if (typeof corpo === "string" && pareceComentario(corpo, false) && temCaraDePortugues(corpo)) {
+                if (typeof corpo === "string" && pareceAvaliacaoComprador(corpo)) {
                   candidatos.push(limparTexto(corpo));
                 }
               }
@@ -474,24 +524,30 @@ Não recomendo, tive dor de cabeça com o processo de devolução.`;
           if (vistos.has(el)) return;
           vistos.add(el);
           const texto = limparTexto(el.textContent || "");
-          if (pareceComentario(texto, false) && temCaraDePortugues(texto)) candidatos.push(texto);
+          if (pareceAvaliacaoComprador(texto)) candidatos.push(texto);
         });
       }
 
-      if (candidatos.length < 2) {
-        doc.querySelectorAll("p").forEach((p) => {
-          const texto = limparTexto(p.textContent || "");
-          if (pareceComentario(texto, true)) candidatos.push(texto);
-        });
-      }
-
-      const unicos = [...new Set(candidatos.filter((t) => !ehTextoDeErro(t)))];
+      const unicos = deduplicarComentarios([...new Set(candidatos)]);
       if (!unicos.length) {
         throw new Error(
-          "Nenhum comentário em português encontrado. A URL pode não ser de avaliações ou o site bloqueou o acesso."
+          "Nenhuma avaliação de comprador encontrada. Esta URL parece ser FAQ/marketing, não reviews. " +
+          "Use a página do produto com avaliações visíveis ou cole os comentários manualmente."
         );
       }
       return unicos.slice(0, 100);
+    }
+
+    function deduplicarComentarios(textos) {
+      const finais = [];
+      for (const texto of [...new Set(textos)].sort((a, b) => b.length - a.length)) {
+        if (finais.some((outro) => outro.includes(texto) && outro !== texto)) continue;
+        for (let i = finais.length - 1; i >= 0; i--) {
+          if (finais[i].includes(texto) && finais[i] !== texto) finais.splice(i, 1);
+        }
+        finais.push(texto);
+      }
+      return finais;
     }
 
     async function baixarPagina(url) {

@@ -217,6 +217,41 @@ PALAVRAS_PT_COMUNS = {
     "atendimento", "preco", "preço", "qualidade", "cliente", "servico", "serviço",
 }
 
+TEXTO_INSTITUCIONAL = (
+    "fortune 500", "joint venture", "canal oficial", "politica de", "política de",
+    "clique aqui", "acesse:", "0800", "3003.", "whatsapp", "ouvidoria",
+    "nota fiscal", "garantia dever", "checkout", "disponibilizamos",
+    "fabricantes de eletrodomesticos", "fabricantes de eletrodomésticos",
+    "recomendamos a leitura", "conforme a nossa", "transportadoras parceiras",
+    "descarte consciente", "programa de beneficios", "programa de benefícios",
+    "politica de troca", "política de troca", "desconfie de pedidos",
+    "navegue e encontre", "tenha sempre em maos", "tenha sempre em mãos",
+    "central de atendimento", "autorizada informando", "registrar seu produto",
+    "suporte mais rapido", "suporte mais rápido", "politica de pagamento",
+)
+
+INICIO_FAQ_MARKETING = (
+    "sim!", "sim,", "temos,", "temos ", "as opcoes", "as opções", "as marcas",
+    "e simples", "voce encontra", "você encontra", "desconfie", "todos os atendimentos",
+    "a midea e", "a midea é", "este e o canal", "este é o canal", "disponibilizamos",
+    "o reembolso segue", "design compacto",
+)
+
+SINAIS_COMPRADOR = (
+    "comprei", "comprado", "recebi", "chegou", "gostei", "amei", "odiei",
+    "recomendo", "nao recomendo", "não recomendo", "insatisfeito", "satisfeito",
+    "minha experi", "minha compra", "usei ", "utilizei", "estrelas",
+    "vale a pena", "decepcion", "expectativa", "arrepend", "produto veio",
+    "entrega foi", "atendimento foi", "nota ", "pessimo produto", "péssimo produto",
+)
+
+SELETORES_REMOVER = (
+    "[class*='FAQ']", "[class*='faq']", "[data-testid='faq']",
+    "[class*='help-']", "[class*='Help']", "[class*='institutional']",
+    "[class*='footer']", "[class*='Footer']", "[class*='banner']",
+    "[class*='Banner']", "[class*='newsletter']",
+)
+
 
 def _eh_texto_de_erro(texto: str) -> bool:
     lower = _limpar_texto(texto).lower()
@@ -273,6 +308,46 @@ def _parece_comentario(texto: str, exigir_portugues: bool = True) -> bool:
     return True
 
 
+def _parece_avaliacao_comprador(texto: str) -> bool:
+    """Filtra FAQ, marketing e textos institucionais — mantém opinião de clientes."""
+    if not _parece_comentario(texto, exigir_portugues=True):
+        return False
+
+    lower = _limpar_texto(texto).lower()
+    normalizado = remover_acentos(lower)
+
+    if any(termo in lower or remover_acentos(termo) in normalizado for termo in TEXTO_INSTITUCIONAL):
+        return False
+    if re.search(r"\b0\d{3,4}[\s.-]?\d{4,}", lower) or "0800" in lower:
+        return False
+    if any(normalizado.startswith(remover_acentos(p)) for p in INICIO_FAQ_MARKETING):
+        return False
+    if any(
+        p in normalizado
+        for p in (
+            "voce pode comprar", "para voce escolher", "saiba mais",
+            "clique aqui", "acesse:",
+        )
+    ):
+        return False
+
+    tem_voz_comprador = any(remover_acentos(s) in normalizado for s in SINAIS_COMPRADOR)
+    tem_eu = bool(re.search(r"\b(eu|minha|meu|minhas|meus)\b", normalizado))
+    tokens = set(re.findall(r"[a-zà-ú]+", normalizado))
+    tem_sentimento = bool(tokens & set(LEXICO_PT.keys()))
+
+    if not tem_voz_comprador and not tem_eu and not tem_sentimento:
+        return False
+
+    return True
+
+
+def _remover_blocos_institucionais(soup: BeautifulSoup) -> None:
+    for seletor in SELETORES_REMOVER:
+        for elemento in soup.select(seletor):
+            elemento.decompose()
+
+
 def _iter_json_ld(obj):
     if isinstance(obj, list):
         for item in obj:
@@ -299,7 +374,7 @@ def _extrair_json_ld(soup: BeautifulSoup) -> list[str]:
             if not any(t in ("Review", "UserComments", "Comment") for t in tipos):
                 continue
             corpo = bloco.get("reviewBody") or bloco.get("description") or bloco.get("text")
-            if isinstance(corpo, str) and _parece_comentario(corpo):
+            if isinstance(corpo, str) and _parece_avaliacao_comprador(corpo):
                 candidatos.append(_limpar_texto(corpo))
     return candidatos
 
@@ -311,6 +386,8 @@ def extrair_comentarios_do_html(html: str) -> list[str]:
     bloqueio = _detectar_pagina_bloqueada(html, soup)
     if bloqueio:
         raise PaginaBloqueadaError(bloqueio)
+
+    _remover_blocos_institucionais(soup)
 
     for tag in soup(["script", "style", "noscript", "svg", "header", "footer", "nav", "aside", "form"]):
         tag.decompose()
@@ -349,28 +426,35 @@ def extrair_comentarios_do_html(html: str) -> list[str]:
                 continue
             vistos_elementos.add(elemento_id)
             texto = _limpar_texto(elemento.get_text(" ", strip=True))
-            if _parece_comentario(texto, exigir_portugues=False) and _tem_cara_de_portugues(texto):
-                candidatos.append(texto)
-
-    if len(candidatos) < 2:
-        for paragrafo in soup.find_all("p"):
-            texto = _limpar_texto(paragrafo.get_text(" ", strip=True))
-            if _parece_comentario(texto, exigir_portugues=True):
+            if _parece_avaliacao_comprador(texto):
                 candidatos.append(texto)
 
     comentarios_unicos: list[str] = []
     for texto in candidatos:
-        if texto not in comentarios_unicos and not _eh_texto_de_erro(texto):
+        if texto not in comentarios_unicos:
             comentarios_unicos.append(texto)
 
     if not comentarios_unicos:
         raise PaginaBloqueadaError(
-            "Nenhum comentário em português encontrado nesta página. "
-            "Verifique se a URL aponta para avaliações/comentários visíveis, "
-            "ou use a aba manual."
+            "Nenhuma avaliação de comprador encontrada nesta URL. "
+            "A página parece ser FAQ, institucional ou marketing — não comentários de clientes. "
+            "Use a URL da página do produto com avaliações visíveis, ou cole os comentários na aba manual. "
+            "Sites como Midea carregam reviews via JavaScript (Vurdere); se não aparecerem no HTML, "
+            "copie manualmente os textos da seção de avaliações."
         )
 
-    return comentarios_unicos[:100]
+    return _deduplicar_comentarios(comentarios_unicos)[:100]
+
+
+def _deduplicar_comentarios(textos: list[str]) -> list[str]:
+    """Remove comentários contidos em outros (ex.: '5 estrelas' + texto vs só texto)."""
+    finais: list[str] = []
+    for texto in sorted(set(textos), key=len, reverse=True):
+        if any(texto in outro and texto != outro for outro in finais):
+            continue
+        finais = [u for u in finais if u not in texto]
+        finais.append(texto)
+    return finais
 
 
 def extrair_comentarios_da_pagina(url: str) -> list[str]:
@@ -462,8 +546,9 @@ with st.container(border=True):
         btn_url = st.button("🔍 Extrair comentários e analisar", type="primary", width="stretch")
 
         st.info(
-            "Como funciona: informe a URL → o sistema baixa a página → "
-            "identifica textos de comentários/avaliações → classifica sentimentos e aspectos."
+            "Cole a URL da **página do produto** onde aparecem avaliações de compradores — "
+            "não use a homepage nem páginas de FAQ/institucional. "
+            "Se o site carregar reviews via JavaScript (ex.: Midea/Vurdere), copie os textos na aba manual."
         )
 
         if btn_url:
