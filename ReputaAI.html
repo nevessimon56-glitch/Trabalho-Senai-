@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ReputaAI — Análise de Reputação & Sentimentos</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface2: #334155;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --positivo: #059669;
+      --neutro: #d97706;
+      --negativo: #dc2626;
+      --border: #475569;
+      --radius: 12px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: linear-gradient(160deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 48px; }
+
+    header { margin-bottom: 28px; }
+    header h1 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em; }
+    header p { color: var(--muted); margin-top: 6px; font-size: 0.95rem; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; }
+
+    textarea {
+      width: 100%;
+      min-height: 140px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 12px 14px;
+      font-size: 0.95rem;
+      resize: vertical;
+      font-family: inherit;
+    }
+
+    textarea:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+    .btn-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+
+    button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 11px 20px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button:hover { background: var(--accent-hover); }
+    button.secondary { background: var(--surface2); }
+    button.secondary:hover { background: #475569; }
+
+    .hint {
+      margin-top: 12px;
+      font-size: 0.82rem;
+      color: var(--muted);
+      padding: 10px 12px;
+      background: rgba(99, 102, 241, 0.1);
+      border-radius: 8px;
+      border-left: 3px solid var(--accent);
+    }
+
+    #results { display: none; }
+    #results.visible { display: block; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .metric {
+      background: linear-gradient(135deg, #1e293b 0%, #312e81 100%);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+    }
+
+    .metric .label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .metric .value { font-size: 1.35rem; font-weight: 700; margin-top: 4px; }
+
+    .diagnostico {
+      padding: 14px 16px;
+      background: rgba(99, 102, 241, 0.12);
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 0.92rem;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    .chart-title, .section-title { font-weight: 600; margin-bottom: 14px; font-size: 0.95rem; }
+
+    .bars { display: flex; flex-direction: column; gap: 12px; }
+    .bar-row { display: flex; align-items: center; gap: 12px; }
+    .bar-label { width: 72px; font-size: 0.85rem; font-weight: 600; }
+    .bar-label.pos { color: var(--positivo); }
+    .bar-label.neu { color: var(--neutro); }
+    .bar-label.neg { color: var(--negativo); }
+    .bar-track { flex: 1; height: 28px; background: var(--bg); border-radius: 6px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 6px; transition: width 0.4s ease; min-width: 2px; }
+    .bar-fill.pos { background: var(--positivo); }
+    .bar-fill.neu { background: var(--neutro); }
+    .bar-fill.neg { background: var(--negativo); }
+    .bar-count { width: 32px; text-align: right; font-weight: 600; font-size: 0.9rem; }
+
+    .topic-list { list-style: none; }
+    .topic-list li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      font-size: 0.88rem;
+    }
+    .topic-list .term { width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .topic-list .track { flex: 1; height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+    .topic-list .fill { height: 100%; background: var(--accent); border-radius: 4px; }
+
+    .table-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+    }
+
+    .table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { background: var(--bg); color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.03); }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+    .badge.positivo { background: rgba(5,150,105,0.2); color: #34d399; }
+    .badge.neutro { background: rgba(217,119,6,0.2); color: #fbbf24; }
+    .badge.negativo { background: rgba(220,38,38,0.2); color: #f87171; }
+
+    .score-pos { color: #34d399; font-weight: 600; }
+    .score-neg { color: #f87171; font-weight: 600; }
+    .score-neu { color: #fbbf24; font-weight: 600; }
+
+    td.comentario { max-width: 340px; }
+
+    input[type="url"], input[type="text"].url-input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 12px 14px;
+      font-size: 0.95rem;
+      font-family: inherit;
+    }
+
+    input.url-input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+    .tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .tab {
+      background: var(--surface2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 16px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+    .tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    .status-msg { margin-top: 12px; font-size: 0.88rem; min-height: 1.2em; }
+    .status-msg.ok { color: #34d399; }
+    .status-msg.err { color: #f87171; }
+    .status-msg.load { color: var(--muted); }
+
+    .status-msg.help { color: #93c5fd; background: rgba(59, 130, 246, 0.12); border: 1px solid #3b82f6; white-space: pre-wrap; }
+
+    .midea-steps { font-size: 0.9rem; color: var(--muted); margin: 12px 0; padding-left: 1.2rem; }
+    .midea-steps li { margin-bottom: 6px; }
+    .bookmarklet {
+      display: inline-block; margin-top: 10px; padding: 10px 14px;
+      background: #059669; color: white; border-radius: 8px; text-decoration: none; font-weight: 600;
+    }
+    .bookmarklet:hover { background: #047857; }
+    code.inline { background: var(--bg); padding: 2px 6px; border-radius: 4px; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>🛡️ ReputaAI — Análise de Reputação & Sentimentos</h1>
+      <p>Cole a <strong>URL</strong> do site — o sistema baixa a página e extrai os comentários automaticamente.</p>
+    </header>
+
+    <div class="card">
+      <div class="tabs">
+        <button type="button" class="tab active" data-tab="url">🌐 Extrair da URL</button>
+        <button type="button" class="tab" data-tab="midea">🏪 Midea (Vurdere)</button>
+        <button type="button" class="tab" data-tab="manual">✍️ Colar manualmente</button>
+      </div>
+
+      <div id="panel-url" class="panel active">
+        <label for="urlInput">Link da página (produto, avaliações, reclamações...)</label>
+        <input type="url" id="urlInput" class="url-input" placeholder="https://loja.com.br/produto/avaliacoes" />
+        <div class="btn-row">
+          <button type="button" id="btnExtrairUrl">🔍 Extrair comentários e analisar</button>
+          <button type="button" class="secondary" id="btnDemoUrl">Usar URL de demonstração</button>
+          <button type="button" class="secondary" id="btnMideaDemo">Demo Midea (funciona)</button>
+        </div>
+        <p class="hint">
+          A homepage real da Midea (<code class="inline">midea.com.br</code>) carrega avaliações via JavaScript (Vurdere)
+          e <strong>não permite extração automática</strong> por URL — use a aba <strong>Midea (Vurdere)</strong>.
+          Para o laboratório, clique em <strong>Demo Midea (funciona)</strong> ou URL de demonstração.
+        </p>
+        <div id="statusUrl" class="status-msg"></div>
+      </div>
+
+      <div id="panel-midea" class="panel">
+        <p class="hint" style="margin-bottom:12px;">
+          As avaliações que você vê ao rolar a Midea são reais (seção <strong>Avaliações da loja / Vendedor</strong>),
+          mas a loja bloqueia acesso externo. Siga os passos abaixo:
+        </p>
+        <ol class="midea-steps">
+          <li>Abra <a href="https://www.midea.com.br/" target="_blank" rel="noopener">midea.com.br</a> e role até o final.</li>
+          <li>Aguarde carregar as avaliações (Vurdere).</li>
+          <li>Arraste o botão verde para a barra de favoritos (bookmarklet):</li>
+        </ol>
+        <a class="bookmarklet" id="bookmarkletMidea" href="#">📋 Copiar avaliações Midea</a>
+        <p class="hint" style="margin-top:14px;">
+          Na Midea, clique no favorito <strong>Copiar avaliações Midea</strong> → volte aqui → aba
+          <strong>Colar manualmente</strong> → Ctrl+V → Analisar.
+        </p>
+        <div class="btn-row">
+          <button type="button" class="secondary" id="btnAbrirMidea">Abrir midea.com.br</button>
+          <button type="button" id="btnDemoMideaPanel">Usar demo Midea (sem copiar)</button>
+        </div>
+      </div>
+
+      <div id="panel-manual" class="panel">
+        <label for="comentarios">Cole os comentários (um por linha)</label>
+        <textarea id="comentarios" placeholder="Um comentário por linha..."></textarea>
+        <div class="btn-row">
+          <button type="button" id="btnAnalisar">Analisar Comentários</button>
+          <button type="button" class="secondary" id="btnExemplos">Carregar Exemplos</button>
+        </div>
+      </div>
+
+      <div class="btn-row" style="margin-top:8px;">
+        <button type="button" class="secondary" id="btnCsv" disabled>📥 Baixar CSV</button>
+      </div>
+    </div>
+
+    <div id="results">
+      <h2 style="margin-bottom:16px;font-size:1.15rem;">📊 Diagnóstico</h2>
+
+      <div class="metrics" id="metrics"></div>
+      <div class="diagnostico" id="diagnostico"></div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="chart-title">Distribuição dos Sentimentos</div>
+          <div class="bars" id="chartBars"></div>
+        </div>
+        <div class="card">
+          <div class="chart-title">Tópicos e Aspectos Mais Citados</div>
+          <ul class="topic-list" id="topicList"></ul>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:20px;">
+        <div class="table-toolbar">
+          <span class="section-title">Detalhamento dos Comentários</span>
+          <select id="filtro">
+            <option value="Todos">Todos os sentimentos</option>
+            <option value="Positivo">Positivo</option>
+            <option value="Neutro">Neutro</option>
+            <option value="Negativo">Negativo</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Comentário</th>
+                <th>Sentimento</th>
+                <th>Score</th>
+                <th>Gatilhos Léxicos</th>
+                <th>Aspectos</th>
+              </tr>
+            </thead>
+            <tbody id="tabelaBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const EXEMPLOS = `Entrega super rápida, produto bem embalado e atendimento excelente!
+O produto chegou com defeito e a loja não respondeu minha reclamação.
+Comprei ontem. Ainda não tive tempo de testar tudo.
+O preço é bom, mas o acabamento é bem ruim e frágil.
+Não recomendo, tive dor de cabeça com o processo de devolução.`;
+
+    const LEXICO_PT_BASE = {
+      adoro: 0.7, agradavel: 0.5, amei: 0.9, atencioso: 0.7, barato: 0.4,
+      boa: 0.5, bom: 0.5, confiavel: 0.8, excelente: 0.9, facil: 0.4,
+      feliz: 0.7, gostei: 0.7, incrivel: 0.8, maravilhosa: 0.9, maravilhoso: 0.9,
+      otima: 0.8, otimo: 0.8, perfeito: 0.9, rapida: 0.5, rapido: 0.5,
+      recomendo: 0.8, resolvido: 0.6, satisfeito: 0.8, seguro: 0.5, top: 0.7,
+      monstro: 0.7, show: 0.8, impecavel: 0.9, embalado: 0.4, embalagem: 0.3,
+      abafado: -0.4, amassada: -0.5, amassado: -0.5, atrasada: -0.6, atrasado: -0.6,
+      caro: -0.4, defeito: -0.8, demora: -0.6, devolucao: -0.4, enganosa: -0.7,
+      enganoso: -0.7, fraude: -0.9, horrivel: -0.9, insatisfeito: -0.8,
+      inutilizavel: -0.8, lenta: -0.4, lento: -0.4, "nao recomendo": -0.9,
+      pessima: -0.8, pessimo: -0.8, problema: -0.6, quebrada: -0.7,
+      quebrado: -0.7, reclamacao: -0.6, ruim: -0.6, terrivel: -0.8, lixo: -0.9,
+      fragil: -0.5
+    };
+
+    const LEXICO_PT = Object.fromEntries(
+      Object.entries(LEXICO_PT_BASE).map(([k, v]) => [removerAcentos(k), v])
+    );
+
+    const EXPRESSOES_COMPOSTAS = Object.entries(LEXICO_PT)
+      .filter(([k]) => k.includes(" "))
+      .sort((a, b) => b[0].length - a[0].length);
+
+    const NEGACOES = new Set(["nao", "nunca", "jamais", "nem", "sem"]);
+    const INTENSIFICADORES = new Set(["muito", "muita", "bem", "super", "totalmente", "extremamente", "demais"]);
+    const CONTRASTE = new Set(["mas", "porem", "entretanto", "contudo", "todavia"]);
+
+    const STOPWORDS = new Set([
+      "a","o","as","os","de","da","do","das","dos","e","em","no","na","nos","nas",
+      "um","uma","uns","umas","por","para","com","sem","que","se","ao","aos","eu",
+      "ele","ela","eles","elas","me","meu","minha","seu","sua","isso","este","esta",
+      "ter","foi","ser","estar","ha","ja","ainda","muito","mais","menos","tambem",
+      "so","sobre","entre","como","quando","onde","la","aqui","tudo","todo","toda",
+      "the","and","your","you","there","between","web","server","cloudflare","issue",
+      "please","try","again","with","from","this","that","can","not","our","for"
+    ]);
+
+    const DEMO_URL =
+      "https://raw.githubusercontent.com/nevessimon56-glitch/Trabalho-Senai-/cursor/fix-reputaai-nlp-sentiment-c8f5/demo_pagina_avaliacoes.html";
+
+    const MIDEA_DEMO_URL =
+      "https://raw.githubusercontent.com/nevessimon56-glitch/Trabalho-Senai-/cursor/fix-reputaai-nlp-sentiment-c8f5/demo_midea_avaliacoes.html";
+
+    const VURDERE_ECOMMERCE_ID = "mds";
+
+    const TEXTO_BLOQUEADO = [
+      "cookie", "privacidade", "todos os direitos", "aceitar cookies",
+      "newsletter", "cadastre-se", "fale conosco", "menu", "carrinho"
+    ];
+
+    const TEXTO_ERRO_SISTEMA = [
+      "cloudflare", "ray id", "origin web server", "please try again",
+      "unknown connection issue", "web page can not be displayed",
+      "web page cannot be displayed", "performance & security by cloudflare",
+      "troubleshooting resources", "error 502", "error 503", "error 403",
+      "access denied", "attention required", "checking your browser",
+      "enable javascript", "captcha", "bot detection", "just a moment",
+      "security check", "ddos protection", "please wait"
+    ];
+
+    const PALAVRAS_PT = new Set([
+      "de", "da", "do", "das", "dos", "nao", "que", "com", "para", "uma", "um",
+      "produto", "loja", "compra", "comprei", "muito", "bem", "recomendo", "entrega",
+      "atendimento", "preco", "qualidade", "cliente", "servico"
+    ]);
+
+    const TEXTO_INSTITUCIONAL = [
+      "fortune 500", "joint venture", "canal oficial", "politica de", "política de",
+      "clique aqui", "acesse:", "0800", "3003.", "whatsapp", "ouvidoria",
+      "nota fiscal", "garantia dever", "checkout", "disponibilizamos",
+      "fabricantes de eletrodomesticos", "recomendamos a leitura", "conforme a nossa",
+      "transportadoras parceiras", "descarte consciente", "programa de beneficios",
+      "politica de troca", "desconfie de pedidos", "navegue e encontre",
+      "central de atendimento", "registrar seu produto", "suporte mais rapido",
+      "politica de pagamento"
+    ];
+
+    const INICIO_FAQ = [
+      "sim!", "sim,", "temos,", "temos ", "as opcoes", "as opções", "as marcas",
+      "e simples", "voce encontra", "você encontra", "desconfie", "todos os atendimentos",
+      "a midea e", "a midea é", "este e o canal", "este é o canal", "disponibilizamos",
+      "o reembolso segue", "design compacto"
+    ];
+
+    const SINAIS_COMPRADOR = [
+      "comprei", "comprado", "recebi", "chegou", "gostei", "amei", "odiei",
+      "recomendo", "nao recomendo", "não recomendo", "insatisfeito", "satisfeito",
+      "minha experi", "minha compra", "usei ", "utilizei", "estrelas",
+      "vale a pena", "decepcion", "expectativa", "arrepend", "produto veio",
+      "entrega foi", "atendimento foi", "nota "
+    ];
+
+    const SELETORES_REMOVER = [
+      "[class*='FAQ']", "[class*='faq']", "[data-testid='faq']",
+      "[class*='Footer']", "[class*='footer']", "[class*='Banner']", "[class*='banner']",
+      "[class*='newsletter']"
+    ];
+
+    const SELETORES = [
+      "[itemprop='reviewBody']", "[itemprop='commentBody']",
+      "[class*='review-text']", "[class*='review-body']", "[class*='review-content']",
+      "[class*='comment-text']", "[class*='comment-body']", "[class*='comment-content']",
+      "[class*='user-comment']", "[class*='customer-review']", "[class*='avaliacao']",
+      "[class*='depoimento']", "[class*='testimonial']", "[class*='opinion']",
+      "[class*='feedback']", "[data-review]", "[data-comment]",
+      "blockquote", ".review-item p", ".comment-item p"
+    ];
+
+    let dadosAtuais = [];
+    let origemAtual = "Análise";
+
+    function limparTexto(texto) {
+      return texto.replace(/\s+/g, " ").trim();
+    }
+
+    function ehTextoDeErro(texto) {
+      const lower = limparTexto(texto).toLowerCase();
+      return TEXTO_ERRO_SISTEMA.some((t) => lower.includes(t));
+    }
+
+    function temCaraDePortugues(texto) {
+      const lower = limparTexto(texto).toLowerCase();
+      if (/[áàâãéêíóôõúç]/.test(lower)) return true;
+      const tokens = lower.match(/[a-zà-ú]+/g) || [];
+      let hits = 0;
+      for (const t of tokens) if (PALAVRAS_PT.has(t)) hits++;
+      return hits >= 2;
+    }
+
+    function detectarPaginaBloqueada(html, doc) {
+      const lower = html.toLowerCase();
+      const indicadores = ["cloudflare", "ray id", "origin web server", "cf-error", "checking your browser"]
+        .filter((t) => lower.includes(t)).length;
+      if (indicadores >= 2 || doc.querySelector("#cf-wrapper, .cf-error-overview, [class*='cf-error']")) {
+        return "O site bloqueou o acesso (Cloudflare/anti-bot). Não há comentários reais nesta resposta.";
+      }
+      return null;
+    }
+
+    function pareceComentario(texto, exigirPortugues = true) {
+      texto = limparTexto(texto);
+      if (texto.length < 20 || texto.length > 800) return false;
+      if ((texto.match(/ /g) || []).length < 3) return false;
+      const lower = texto.toLowerCase();
+      if (TEXTO_BLOQUEADO.some((t) => lower.includes(t))) return false;
+      if (ehTextoDeErro(texto)) return false;
+      if (exigirPortugues && !temCaraDePortugues(texto)) return false;
+      return true;
+    }
+
+    function pareceAvaliacaoComprador(texto) {
+      if (!pareceComentario(texto, true)) return false;
+      const lower = limparTexto(texto).toLowerCase();
+      const norm = removerAcentos(lower);
+      if (TEXTO_INSTITUCIONAL.some((t) => lower.includes(t) || norm.includes(removerAcentos(t)))) return false;
+      if (/\b0\d{3,4}[\s.-]?\d{4,}/.test(lower) || lower.includes("0800")) return false;
+      if (INICIO_FAQ.some((p) => norm.startsWith(removerAcentos(p)))) return false;
+      if (["voce pode comprar", "para voce escolher", "saiba mais", "clique aqui", "acesse:"].some((p) => norm.includes(p))) return false;
+
+      const temVoz = SINAIS_COMPRADOR.some((s) => norm.includes(removerAcentos(s)));
+      const temEu = /\b(eu|minha|meu|minhas|meus)\b/.test(norm);
+      const tokens = norm.match(/[a-z]+/g) || [];
+      const temSentimento = tokens.some((t) => t in LEXICO_PT);
+      if (!temVoz && !temEu && !temSentimento) return false;
+      return true;
+    }
+
+    function extrairComentariosDoHtml(html) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+
+      const bloqueio = detectarPaginaBloqueada(html, doc);
+      if (bloqueio) throw new Error(bloqueio);
+
+      SELETORES_REMOVER.forEach((sel) => doc.querySelectorAll(sel).forEach((el) => el.remove()));
+      doc.querySelectorAll("script, style, noscript, svg, header, footer, nav, aside, form").forEach((el) => el.remove());
+
+      const candidatos = [];
+
+      doc.querySelectorAll("script[type='application/ld+json']").forEach((script) => {
+        try {
+          const walk = (obj) => {
+            if (Array.isArray(obj)) obj.forEach(walk);
+            else if (obj && typeof obj === "object") {
+              const tipos = Array.isArray(obj["@type"]) ? obj["@type"] : [obj["@type"]];
+              if (tipos.some((t) => ["Review", "UserComments", "Comment"].includes(t))) {
+                const corpo = obj.reviewBody || obj.description || obj.text;
+                if (typeof corpo === "string" && pareceAvaliacaoComprador(corpo)) {
+                  candidatos.push(limparTexto(corpo));
+                }
+              }
+              Object.values(obj).forEach((v) => { if (v && typeof v === "object") walk(v); });
+            }
+          };
+          walk(JSON.parse(script.textContent));
+        } catch (_) { /* ignora JSON inválido */ }
+      });
+
+      const vistos = new Set();
+      for (const seletor of SELETORES) {
+        doc.querySelectorAll(seletor).forEach((el) => {
+          if (vistos.has(el)) return;
+          vistos.add(el);
+          const texto = limparTexto(el.textContent || "");
+          if (pareceAvaliacaoComprador(texto)) candidatos.push(texto);
+        });
+      }
+
+      const unicos = deduplicarComentarios([...new Set(candidatos)]);
+      if (!unicos.length) {
+        throw new Error(
+          "Nenhuma avaliação de comprador encontrada. Esta URL parece ser FAQ/marketing, não reviews. " +
+          "Use a página do produto com avaliações visíveis ou cole os comentários manualmente."
+        );
+      }
+      return unicos.slice(0, 100);
+    }
+
+    function deduplicarComentarios(textos) {
+      const finais = [];
+      for (const texto of [...new Set(textos)].sort((a, b) => b.length - a.length)) {
+        if (finais.some((outro) => outro.includes(texto) && outro !== texto)) continue;
+        for (let i = finais.length - 1; i >= 0; i--) {
+          if (finais[i].includes(texto) && finais[i] !== texto) finais.splice(i, 1);
+        }
+        finais.push(texto);
+      }
+      return finais;
+    }
+
+    function pareceTextoVurdere(texto) {
+      texto = limparTexto(texto);
+      if (texto.length < 15 || texto.length > 2000) return false;
+      if (ehTextoDeErro(texto)) return false;
+      const lower = texto.toLowerCase();
+      if (TEXTO_INSTITUCIONAL.some((t) => lower.includes(t))) return false;
+      return true;
+    }
+
+    function parseVurdereJson(data) {
+      const comentarios = [];
+      const chaves = ["reviewBody", "reviewText", "text", "comment", "description", "message", "content", "body"];
+
+      function walk(obj) {
+        if (Array.isArray(obj)) obj.forEach(walk);
+        else if (obj && typeof obj === "object") {
+          for (const k of chaves) {
+            const v = obj[k];
+            if (typeof v === "string") {
+              const tmp = new DOMParser().parseFromString(v, "text/html");
+              const t = limparTexto(tmp.body.textContent || v);
+              if (pareceTextoVurdere(t)) comentarios.push(t);
+            }
+          }
+          Object.values(obj).forEach((v) => { if (v && typeof v === "object") walk(v); });
+        }
+      }
+      walk(data);
+      return deduplicarComentarios([...new Set(comentarios)]);
+    }
+
+    async function fetchVurdereJson(apiUrl) {
+      async function parseBody(res) {
+        if (!res.ok) return null;
+        const raw = await res.text();
+        if (!raw || raw.trim().startsWith("<")) return null;
+        try { return JSON.parse(raw); } catch (_) { return null; }
+      }
+
+      try {
+        const direct = await fetch(apiUrl, {
+          signal: AbortSignal.timeout(15000),
+          headers: { Accept: "application/json, text/plain, */*", "Accept-Language": "pt-BR,pt;q=0.9" },
+        });
+        const parsed = await parseBody(direct);
+        if (parsed) return parsed;
+      } catch (_) { /* CORS esperado fora de midea.com.br */ }
+
+      const proxyTentativas = [
+        async () => {
+          const res = await fetch(
+            "https://api.allorigins.win/get?url=" + encodeURIComponent(apiUrl),
+            { signal: AbortSignal.timeout(20000) }
+          );
+          const wrap = await res.json();
+          if (!wrap.contents) return null;
+          if (wrap.contents.trim().startsWith("<")) return null;
+          return JSON.parse(wrap.contents);
+        },
+        async () => {
+          const proxy =
+            "https://corsproxy.io/?url=" + encodeURIComponent(apiUrl) +
+            "&reqHeaders=" + encodeURIComponent("origin:https://www.midea.com.br") +
+            "&reqHeaders=" + encodeURIComponent("referer:https://www.midea.com.br/") +
+            "&reqHeaders=" + encodeURIComponent("accept:application/json");
+          const res = await fetch(proxy, { signal: AbortSignal.timeout(20000) });
+          return parseBody(res);
+        },
+      ];
+
+      for (const fn of proxyTentativas) {
+        try {
+          const dados = await fn();
+          if (dados) return dados;
+        } catch (_) { /* próximo proxy */ }
+      }
+      return null;
+    }
+
+    function ehHomepageMidea(url) {
+      try {
+        const u = new URL(url.startsWith("http") ? url : "https://" + url);
+        if (!u.hostname.includes("midea.com.br")) return false;
+        const path = u.pathname.replace(/^\/|\/$/g, "").toLowerCase();
+        return path === "" || path === "home";
+      } catch (_) {
+        return false;
+      }
+    }
+
+    async function extrairComentariosVurdereMidea(url) {
+      let alvo = url.trim();
+      if (!/^https?:\/\//i.test(alvo)) alvo = "https://" + alvo;
+      if (!alvo.includes("midea.com.br")) return [];
+
+      if (ehHomepageMidea(alvo)) {
+        const apis = [
+          `https://midea-br.mais.social/api/store/reviews?ecommerceId=${VURDERE_ECOMMERCE_ID}&locale=ptBr&limit=50&filtersCityOff=true`,
+          `https://mideastore-br.mais.social/api/store/reviews?ecommerceId=${VURDERE_ECOMMERCE_ID}&locale=ptBr&limit=50&filtersCityOff=true`,
+          `https://midea-br.mais.social/api/jamstack/reviews?ecommerceId=${VURDERE_ECOMMERCE_ID}&locale=ptBr&limit=50`,
+        ];
+        for (const api of apis) {
+          const dados = await fetchVurdereJson(api);
+          if (dados) {
+            const c = parseVurdereJson(dados);
+            if (c.length) return c.slice(0, 100);
+          }
+        }
+        return [];
+      }
+
+      const seoUrl =
+        `https://mideastore-br.mais.social/api/pdp/seo?ecommerceId=${VURDERE_ECOMMERCE_ID}` +
+        `&url=${encodeURIComponent(alvo)}&locale=ptBr&v=4&selectiveLoad=true&trigger=init`;
+      const seo = await fetchVurdereJson(seoUrl);
+      if (!seo || typeof seo !== "object") return [];
+
+      let productId = seo.productId || seo.product_id;
+      const productId2 = seo.productId2 || seo.product_id2 || "";
+      const skuId = seo.skuId || seo.sku_id || "";
+      if (!productId && seo.product && typeof seo.product === "object") {
+        productId = seo.product.productId || seo.product.id;
+      }
+      if (!productId) return [];
+
+      let params =
+        `ecommerceId=${VURDERE_ECOMMERCE_ID}&productId=${encodeURIComponent(productId)}` +
+        "&locale=ptBr&limit=50&showRelated=true&filtersCityOff=true";
+      if (productId2) params += `&productId2=${encodeURIComponent(productId2)}`;
+      if (skuId) params += `&skuId=${encodeURIComponent(String(skuId))}`;
+
+      const reviewsUrl = `https://mideastore-br.mais.social/api/pdp/reviews?${params}`;
+      const dados = await fetchVurdereJson(reviewsUrl);
+      if (dados) {
+        const c = parseVurdereJson(dados);
+        if (c.length) return c.slice(0, 100);
+      }
+      return [];
+    }
+
+    async function baixarPagina(url) {
+      let alvo = url.trim();
+      if (!/^https?:\/\//i.test(alvo)) alvo = "https://" + alvo;
+
+      const proxies = [
+        (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+        (u) => "https://corsproxy.io/?" + encodeURIComponent(u),
+      ];
+
+      let ultimoErro = null;
+      for (const proxyFn of proxies) {
+        try {
+          const res = await fetch(proxyFn(alvo), { signal: AbortSignal.timeout(25000) });
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const html = await res.text();
+          if (html && html.length > 100) return { html, alvo };
+        } catch (err) {
+          ultimoErro = err;
+        }
+      }
+      throw ultimoErro || new Error("Não foi possível baixar a página.");
+    }
+
+    function mostrarAjudaMidea(statusEl) {
+      setStatus(
+        statusEl,
+        "A Midea bloqueia extração automática (Vurdere + CORS).\n\n" +
+        "→ Abra a aba «Midea (Vurdere)» e use o bookmarklet na loja real,\n" +
+        "  ou clique «Demo Midea (funciona)» para testar no laboratório.",
+        "help"
+      );
+      document.querySelector('.tab[data-tab="midea"]').click();
+    }
+
+    async function extrairComentariosDaPagina(url) {
+      let alvo = url.trim();
+      if (!/^https?:\/\//i.test(alvo)) alvo = "https://" + alvo;
+
+      if (alvo.includes("midea.com.br") && !alvo.includes("demo_midea_avaliacoes")) {
+        const vurdere = await extrairComentariosVurdereMidea(alvo);
+        if (vurdere.length) return vurdere;
+      }
+
+      const { html } = await baixarPagina(alvo);
+      try {
+        return extrairComentariosDoHtml(html);
+      } catch (err) {
+        if (alvo.includes("midea.com.br") && !alvo.includes("demo_midea_avaliacoes")) {
+          const e = new Error("MIDEA_BLOQUEADA");
+          e.cause = err;
+          throw e;
+        }
+        throw err;
+      }
+    }
+
+    function ativarTab(nome) {
+      document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+      document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+      document.querySelector('.tab[data-tab="' + nome + '"]').classList.add("active");
+      document.getElementById("panel-" + nome).classList.add("active");
+    }
+
+    async function analisarUrlDemo(url, origem) {
+      const status = document.getElementById("statusUrl");
+      const btn = document.getElementById("btnExtrairUrl");
+      document.getElementById("urlInput").value = url;
+      btn.disabled = true;
+      setStatus(status, "Extraindo comentários...", "load");
+      try {
+        const comentarios = await extrairComentariosDaPagina(url);
+        setStatus(status, comentarios.length + " comentários extraídos com sucesso.", "ok");
+        processarResultado(comentarios, origem);
+      } catch (err) {
+        if (err.message === "MIDEA_BLOQUEADA") mostrarAjudaMidea(status);
+        else setStatus(status, "Erro: " + err.message, "err");
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    const BOOKMARKLET_MIDEA =
+      "javascript:(function(){function copiar(){var r=document.querySelector('#vurdere-socialcommonly,[data-vurdere-store-reviews],[class*=\"StoreReview\"],[class*=\"vurdereStore\"]');if(!r){alert('Role ate Avaliacoes da loja / Vendedor e aguarde carregar.');return;}var s=new Set();r.querySelectorAll('p,span,li,div').forEach(function(el){if(el.children.length>3)return;var t=(el.innerText||'').replace(/\\s+/g,' ').trim();if(t.length>=12&&t.length<=500&&!/^\\d+$/.test(t))s.add(t);});var u=Array.from(s);if(!u.length)u=r.innerText.split(/\\n+/).map(function(x){return x.trim();}).filter(function(x){return x.length>=12;});var txt=u.join('\\n');navigator.clipboard.writeText(txt).then(function(){alert('Copiado '+u.length+' trechos! Cole no ReputaAI (aba manual).');}).catch(function(){prompt('Copie os textos:',txt);});}window.scrollTo(0,document.body.scrollHeight);setTimeout(copiar,2500);})();";
+
+    function hostnameDe(url) {
+      try { return new URL(url.startsWith("http") ? url : "https://" + url).hostname; }
+      catch { return "URL informada"; }
+    }
+
+    function setStatus(el, msg, cls) {
+      el.textContent = msg;
+      el.className = "status-msg " + (cls || "");
+    }
+
+    function processarResultado(comentarios, origem) {
+      origemAtual = origem;
+      const { linhas, todosTopicos } = analisarComentarios(comentarios);
+      dadosAtuais = linhas;
+      renderizar(linhas, todosTopicos, origem);
+    }
+
+    function removerAcentos(texto) {
+      return texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    }
+
+    function tokenizarParaLexico(texto) {
+      const bruto = texto.toLowerCase().match(/[a-zà-ú]+/gi) || [];
+      return bruto.map(removerAcentos);
+    }
+
+    function indicesDaExpressao(tokens, expressao) {
+      const partes = expressao.split(" ");
+      const indices = [];
+      for (let i = 0; i <= tokens.length - partes.length; i++) {
+        if (partes.every((p, j) => tokens[i + j] === p)) indices.push(i);
+      }
+      return indices;
+    }
+
+    function calcularSentimento(texto) {
+      const tokens = tokenizarParaLexico(texto);
+      let score = 0;
+      const termos = [];
+      const indicesUsados = new Set();
+
+      for (const [expressao, valor] of EXPRESSOES_COMPOSTAS) {
+        const partes = expressao.split(" ");
+        for (const inicio of indicesDaExpressao(tokens, expressao)) {
+          const faixa = Array.from({ length: partes.length }, (_, j) => inicio + j);
+          if (faixa.some((i) => indicesUsados.has(i))) continue;
+          score += valor;
+          termos.push(expressao);
+          faixa.forEach((i) => indicesUsados.add(i));
+        }
+      }
+
+      const indiceContraste = tokens.findIndex((t) => CONTRASTE.has(t));
+
+      for (let indice = 0; indice < tokens.length; indice++) {
+        const token = tokens[indice];
+        if (indicesUsados.has(indice) || !(token in LEXICO_PT) || token.includes(" ")) continue;
+
+        let valor = LEXICO_PT[token];
+        const janela = tokens.slice(Math.max(0, indice - 3), indice);
+
+        if (janela.some((t) => NEGACOES.has(t))) valor *= -0.85;
+        if (janela.some((t) => INTENSIFICADORES.has(t))) valor *= 1.25;
+        if (indiceContraste >= 0 && indice > indiceContraste) valor *= 1.2;
+
+        score += valor;
+        termos.push(token);
+      }
+
+      let sentimento;
+      if (score >= 0.2) sentimento = "Positivo";
+      else if (score <= -0.2) sentimento = "Negativo";
+      else sentimento = "Neutro";
+
+      return {
+        sentimento,
+        score: Math.round(score * 100) / 100,
+        termos: [...new Set(termos)].sort()
+      };
+    }
+
+    function extrairTopicos(texto) {
+      const tokens = tokenizarParaLexico(texto);
+      return tokens.filter(
+        (t) => t.length > 2 && !STOPWORDS.has(t) && !NEGACOES.has(t) && !(t in LEXICO_PT)
+      );
+    }
+
+    function quebrarComentarios(texto) {
+      return texto
+        .split("\n")
+        .map((l) => l.trim().replace(/\s+/g, " "))
+        .filter((l) => l.length >= 10);
+    }
+
+    function analisarComentarios(comentarios) {
+      const linhas = [];
+      const todosTopicos = [];
+
+      for (const comentario of comentarios) {
+        const { sentimento, score, termos } = calcularSentimento(comentario);
+        const topicos = extrairTopicos(comentario);
+        todosTopicos.push(...topicos);
+        linhas.push({
+          comentario,
+          sentimento,
+          score,
+          palavras: termos.length ? termos.join(", ") : "-",
+          topicos: topicos.length ? topicos.slice(0, 6).join(", ") : "-"
+        });
+      }
+
+      return { linhas, todosTopicos };
+    }
+
+    function calcularReputacao(linhas) {
+      if (!linhas.length) return { status: "Sem dados", indice: 0, texto: "Insira comentários." };
+
+      const positivos = linhas.filter((l) => l.sentimento === "Positivo").length;
+      const negativos = linhas.filter((l) => l.sentimento === "Negativo").length;
+      const total = linhas.length;
+      const scoreMedio = linhas.reduce((s, l) => s + l.score, 0) / total;
+      const indice = ((positivos - negativos) / total) * 100;
+
+      if (indice >= 30 && scoreMedio > 0) {
+        return { status: "🟢 Boa Reputação", indice, texto: "A percepção geral é predominantemente favorável." };
+      }
+      if (indice <= -15 || scoreMedio < -0.2) {
+        return { status: "🔴 Reputação em Risco", indice, texto: "Excesso de menções negativas ou reclamações graves." };
+      }
+      return { status: "🟡 Reputação Neutra / Mista", indice, texto: "Opiniões balanceadas ou comentários descritivos." };
+    }
+
+    function contarSentimentos(linhas) {
+      const c = { Positivo: 0, Neutro: 0, Negativo: 0 };
+      linhas.forEach((l) => c[l.sentimento]++);
+      return c;
+    }
+
+    function topTopicos(lista, n = 8) {
+      const freq = {};
+      lista.forEach((t) => { freq[t] = (freq[t] || 0) + 1; });
+      return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, n);
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function badgeClass(s) {
+      if (s === "Positivo") return "positivo";
+      if (s === "Negativo") return "negativo";
+      return "neutro";
+    }
+
+    function scoreClass(s, sentimento) {
+      if (sentimento === "Positivo") return "score-pos";
+      if (sentimento === "Negativo") return "score-neg";
+      return "score-neu";
+    }
+
+    function renderizar(linhas, todosTopicos, origem) {
+      const titulo = document.querySelector("#results h2");
+      if (titulo) titulo.textContent = "📊 Diagnóstico — " + (origem || origemAtual);
+
+      const rep = calcularReputacao(linhas);
+      const contagem = contarSentimentos(linhas);
+      const maxBarFixed = Math.max(contagem.Positivo, contagem.Neutro, contagem.Negativo, 1);
+      const scoreMedio = linhas.reduce((s, l) => s + l.score, 0) / linhas.length;
+
+      document.getElementById("metrics").innerHTML = `
+        <div class="metric"><div class="label">Status</div><div class="value">${rep.status}</div></div>
+        <div class="metric"><div class="label">Índice Líquido</div><div class="value">${rep.indice >= 0 ? "+" : ""}${rep.indice.toFixed(1)}%</div></div>
+        <div class="metric"><div class="label">Total</div><div class="value">${linhas.length}</div></div>
+        <div class="metric"><div class="label">Score Médio</div><div class="value">${scoreMedio.toFixed(2)}</div></div>
+      `;
+
+      document.getElementById("diagnostico").innerHTML = `<strong>Diagnóstico:</strong> ${rep.texto}`;
+
+      const barData = [
+        { key: "Positivo", cls: "pos", q: contagem.Positivo },
+        { key: "Neutro", cls: "neu", q: contagem.Neutro },
+        { key: "Negativo", cls: "neg", q: contagem.Negativo }
+      ];
+
+      document.getElementById("chartBars").innerHTML = barData.map((b) => `
+        <div class="bar-row">
+          <span class="bar-label ${b.cls}">${b.key}</span>
+          <div class="bar-track"><div class="bar-fill ${b.cls}" style="width:${(b.q / maxBarFixed) * 100}%"></div></div>
+          <span class="bar-count">${b.q}</span>
+        </div>
+      `).join("");
+
+      const tops = topTopicos(todosTopicos);
+      const maxFreq = tops.length ? tops[0][1] : 1;
+      document.getElementById("topicList").innerHTML = tops.length
+        ? tops.map(([term, n]) => `
+            <li>
+              <span class="term" title="${escapeHtml(term)}">${escapeHtml(term)}</span>
+              <div class="track"><div class="fill" style="width:${(n / maxFreq) * 100}%"></div></div>
+              <span>${n}</span>
+            </li>`).join("")
+        : "<li style='color:var(--muted)'>Nenhum tópico extraído.</li>";
+
+      renderTabela(linhas);
+      document.getElementById("results").classList.add("visible");
+      document.getElementById("btnCsv").disabled = false;
+    }
+
+    function renderTabela(linhas) {
+      const filtro = document.getElementById("filtro").value;
+      const filtradas = filtro === "Todos" ? linhas : linhas.filter((l) => l.sentimento === filtro);
+      const ordenadas = [...filtradas].sort((a, b) => b.score - a.score);
+
+      document.getElementById("tabelaBody").innerHTML = ordenadas.map((l) => `
+        <tr>
+          <td class="comentario">${escapeHtml(l.comentario)}</td>
+          <td><span class="badge ${badgeClass(l.sentimento)}">${l.sentimento}</span></td>
+          <td class="${scoreClass(l.score, l.sentimento)}">${l.score >= 0 ? "+" : ""}${l.score.toFixed(2)}</td>
+          <td>${escapeHtml(l.palavras)}</td>
+          <td>${escapeHtml(l.topicos)}</td>
+        </tr>
+      `).join("");
+    }
+
+    function baixarCsv() {
+      const header = ["comentario", "sentimento", "score", "palavras_de_sentimento", "topicos"];
+      const rows = dadosAtuais.map((l) =>
+        [l.comentario, l.sentimento, l.score, l.palavras, l.topicos]
+          .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+          .join(",")
+      );
+      const csv = [header.join(","), ...rows].join("\n");
+      const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "analise_reputacao_" + origemAtual.replace(/\./g, "_") + ".csv";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    document.querySelectorAll(".tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
+        tab.classList.add("active");
+        document.getElementById("panel-" + tab.dataset.tab).classList.add("active");
+      });
+    });
+
+    document.getElementById("btnDemoUrl").addEventListener("click", () => {
+      document.getElementById("urlInput").value = DEMO_URL;
+    });
+
+    document.getElementById("btnMideaDemo").addEventListener("click", () => {
+      analisarUrlDemo(MIDEA_DEMO_URL, "demo_midea");
+    });
+
+    document.getElementById("bookmarkletMidea").href = BOOKMARKLET_MIDEA;
+
+    document.getElementById("btnAbrirMidea").addEventListener("click", () => {
+      window.open("https://www.midea.com.br/", "_blank", "noopener");
+    });
+
+    document.getElementById("btnDemoMideaPanel").addEventListener("click", () => {
+      ativarTab("url");
+      analisarUrlDemo(MIDEA_DEMO_URL, "demo_midea");
+    });
+
+    document.getElementById("btnExtrairUrl").addEventListener("click", async () => {
+      const url = document.getElementById("urlInput").value.trim();
+      const status = document.getElementById("statusUrl");
+      const btn = document.getElementById("btnExtrairUrl");
+
+      if (!url) {
+        setStatus(status, "Insira a URL do site.", "err");
+        return;
+      }
+
+      btn.disabled = true;
+      setStatus(status, "Buscando avaliações...", "load");
+
+      try {
+        const comentarios = await extrairComentariosDaPagina(url);
+        setStatus(status, `${comentarios.length} comentários extraídos com sucesso.`, "ok");
+        processarResultado(comentarios, hostnameDe(url));
+      } catch (err) {
+        if (err.message === "MIDEA_BLOQUEADA") mostrarAjudaMidea(status);
+        else setStatus(status, "Erro: " + err.message, "err");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById("btnExemplos").addEventListener("click", () => {
+      document.getElementById("comentarios").value = EXEMPLOS;
+    });
+
+    document.getElementById("btnAnalisar").addEventListener("click", () => {
+      const texto = document.getElementById("comentarios").value;
+      const comentarios = quebrarComentarios(texto);
+      if (!comentarios.length) {
+        alert("Nenhuma linha válida (mínimo 10 caracteres por linha).");
+        return;
+      }
+      const { linhas, todosTopicos } = analisarComentarios(comentarios);
+      processarResultado(comentarios, "Inserção Manual");
+    });
+
+    document.getElementById("filtro").addEventListener("change", () => {
+      if (dadosAtuais.length) renderTabela(dadosAtuais);
+    });
+
+    document.getElementById("btnCsv").addEventListener("click", baixarCsv);
+
+    document.getElementById("comentarios").value = EXEMPLOS;
+  </script>
+</body>
+</html>
